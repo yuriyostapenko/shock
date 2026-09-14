@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -27,6 +28,10 @@ import (
 var version = "dev"
 
 func main() {
+	// Invoked through the /hooks/spawn-runner symlink, the binary is the hook.
+	if filepath.Base(os.Args[0]) == "spawn-runner" {
+		os.Exit(runHook())
+	}
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)

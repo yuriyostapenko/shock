@@ -23,8 +23,8 @@ Components, per environment:
    Holds the environment secret. Its only extension point is the required `spawn-runner` hook;
    it receives no other lifecycle events.
 2. **spawn-runner hook** — `shock hook spawn-runner`, a subcommand of the same Go binary as the
-   session controller, reached through a two-line exec shim **baked into the image** at
-   `/hooks/spawn-runner`. Nothing is mounted at `/hooks`. Executed by
+   session controller, reached through `/hooks/spawn-runner` **baked into the image** (a symlink to
+   the `shock` binary, which runs the hook when invoked under that name). Nothing is mounted at `/hooks`. Executed by
    the orchestrator once per spawn request. It only *declares* state (create/patch Sandbox, write
    work-order Secret, stamp `pending-spawn` annotation) and exits fast. It never waits for pods.
 3. **agent-sandbox controller** (kubernetes-sigs/agent-sandbox, v1beta1 API) — **hard prerequisite,
@@ -172,7 +172,7 @@ shock/
 ├── internal/hook/                  # deliverable B
 ├── internal/sessioncontroller/            # deliverable C
 ├── images/orchestrator/Dockerfile  # multi-stage: builds cmd/shock, COPYs it beside `claude`,
-│                                   # writes the /hooks/spawn-runner shim; one image serves
+│                                   # links /hooks/spawn-runner to it; one image serves
 │                                   # orchestrator, hook, and session controller
 ├── test/e2e/                       # kind-based e2e incl. agent-sandbox conformance ([section 12](#12-testing-and-acceptance-criteria))
 ├── LICENSE  README.md  CONTRIBUTING.md   # OSS hygiene: Apache-2.0, quickstart, dev guide
@@ -338,7 +338,7 @@ Ship `values.schema.json` covering every key above (types, required, enums). Lin
 
 ## 6. Deliverable B — spawn-runner hook
 
-`shock hook spawn-runner`, invoked through the `/hooks/spawn-runner` shim shipped in the image.
+`shock hook spawn-runner`, invoked through the `/hooks/spawn-runner` symlink shipped in the image.
 Shares
 `internal/naming` with the session controller, so the names and labels the hook writes and the selector
 the session controller lists on cannot drift — [section 5](#5-naming-and-metadata-conventions-normative)'s sanitize/truncate/hash rule has exactly one
@@ -751,8 +751,11 @@ cascade and upstream reconciliation tests require kind with the relevant control
 Pinned: agent-sandbox **v1.0.2** (`sigs.k8s.io/agent-sandbox`, `k8s.io/*` v0.37.0,
 controller-runtime v0.25.1), Go 1.27, Helm 4.2.3 locally (CI pins v4.3.0), kind 0.33 with `kindest/node:v1.35.0` locally (CI matrix v1.35.8 and v1.37.0),
 envtest 1.35.0 and 1.37.0, Claude Code 2.1.270 as the image build default
-(native binary from downloads.claude.ai per the deploy doc's recipe, on `golang:1.27-trixie` and
-`debian:trixie-slim`; the doc's own example uses bookworm-slim and its version floor is 2.1.224).
+(native binary from downloads.claude.ai per the deploy doc's recipe, fetched in a `debian:trixie-slim` stage and
+placed on `gcr.io/distroless/base-debian13:nonroot`; the doc's own example uses bookworm-slim and its version
+floor is 2.1.224). The runtime has no shell, so `/hooks/spawn-runner` is a symlink to `shock`, which dispatches
+on its invocation name; the orchestrator found and accepted the symlinked hook in local runs, and a live
+environment run still has to confirm hook execution end to end.
 
 1. **Hook env vars** (configuration doc, "The spawn-runner hook"): `CLAUDE_RUNNER_WORK_ORDER_FILE`
    (temp file, deleted after exit), `CLAUDE_RUNNER_ORDER_ID` (idempotency key, safe for

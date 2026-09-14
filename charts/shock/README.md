@@ -44,9 +44,11 @@ GitOps engines can converge in any order.
 ## Images
 
 **SHOCK image** (`orchestrator.image`, built from `images/orchestrator/Dockerfile`):
-`claude` for the orchestrator process, the `shock` binary for the hook and the
-session controller, and the two-line shim at `/hooks/spawn-runner`. Nothing is
-mounted at `/hooks`: a mount there would shadow the shim.
+`gcr.io/distroless/base-debian13:nonroot` carrying `claude` for the orchestrator
+process, the `shock` binary for the hook and the session controller, and
+`/hooks/spawn-runner` as a symlink to `shock`, which runs the hook when invoked
+under that name. The image has no shell or package manager and runs as user
+65532. The orchestrator Deployment leaves `/hooks` to the image.
 
 **Runner image** (`runner.image`) is an input, not a deliverable. Contract:
 

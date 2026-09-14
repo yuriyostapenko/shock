@@ -52,7 +52,7 @@ operations document.
 | `internal/hook/` | The spawn-runner hook |
 | `internal/sessioncontroller/` | The controller-runtime session controller |
 | `internal/patch/` | UID + resourceVersion pinned merge patches |
-| `images/orchestrator/Dockerfile` | Multi-stage image: `claude`, `shock`, `/hooks/spawn-runner` shim |
+| `images/orchestrator/Dockerfile` | Distroless image: `claude`, `shock`, `/hooks/spawn-runner` symlink |
 | `test/chart/` | Typed decode of the rendered Sandbox template, forced-field and RBAC checks |
 | `test/envtest/` | API-concurrency tests against a real kube-apiserver |
 | `test/e2e/` | kind e2e including agent-sandbox conformance |
