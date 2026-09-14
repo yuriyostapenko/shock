@@ -20,5 +20,3 @@ keywords:
   - claude-code
   - self-hosted-runner
   - agent-sandbox
-# The tested agent-sandbox range is the e2e matrix in .github/workflows/ci.yaml,
-# not a chart annotation: nothing at install or run time consumes it (spec §12).

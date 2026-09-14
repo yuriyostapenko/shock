@@ -19,12 +19,12 @@ rules:
   - apiGroups: ["agents.x-k8s.io"]
     resources: ["sandboxes"]
     verbs: ["get", "list", "watch", "patch"{{ if .Values.sessionController.gc.enabled }}, "delete"{{ end }}]
-  # Immutable order verification only. Never delete: Secrets are reaped by
-  # ownerReference when their Sandbox goes.
+  # get: immutable order verification. Secrets are reaped by ownerReference
+  # together with their Sandbox.
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]
-  # Spawn observation and stranded-pod detection only. Never delete.
+  # get/list/watch: spawn observation and stranded-pod detection.
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]

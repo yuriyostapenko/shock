@@ -40,8 +40,7 @@ jobs:
       - uses: azure/setup-helm@v5.0.1
         with:
           version: ${{ env.HELM_VERSION }}
-      # The official chart-testing image bundles ct, helm, yamllint and yamale,
-      # so no Python setup or nested installer actions are needed.
+      # The official chart-testing image bundles ct, helm, yamllint and yamale.
       - name: ct lint
         run: |
           docker run --rm -v "$PWD:/work" -w /work quay.io/helmpack/chart-testing:${{ env.CT_VERSION }} \

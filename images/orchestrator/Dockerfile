@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # One image serves the orchestrator, the spawn-runner hook and the session
 # controller: `claude` for the orchestrator process, `shock` for the hook and
-# controller, and the two-line /hooks/spawn-runner shim baked in (nothing is
-# ever mounted at /hooks).
+# controller, and the two-line /hooks/spawn-runner shim baked in.
 #
 # The runtime stage follows Anthropic's deploy-doc recipe: debian:bookworm-slim
 # plus the native claude binary from the Claude Code release location

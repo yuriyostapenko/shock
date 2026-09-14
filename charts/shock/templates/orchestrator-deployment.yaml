@@ -67,7 +67,7 @@ spec:
           args:
             - self-hosted-runner
             - orchestrator
-            # Nothing mounts at /hooks: the spawn-runner shim ships in the image.
+            # /hooks/spawn-runner is the shim baked into the image.
             - --hooks-dir
             - /hooks
             - --environment-secret-file

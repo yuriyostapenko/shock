@@ -1,6 +1,6 @@
 # Default values for shock. See README.md for the runner image contract and
 # operational notes. agent-sandbox (https://github.com/kubernetes-sigs/agent-sandbox)
-# must be installed separately; this chart never renders its CRDs or controller.
+# is a prerequisite installed separately from its upstream releases.
 
 environment:
   # Name of an existing Secret with key `environment-secret` holding the
