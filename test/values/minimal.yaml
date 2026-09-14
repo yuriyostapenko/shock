@@ -1,0 +1,11 @@
+# Minimal values used by lint, render and golden tests.
+environment:
+  existingSecret: claude-environment
+orchestrator:
+  image:
+    repository: example.invalid/shock
+    tag: 0.1.0
+runner:
+  image:
+    repository: example.invalid/claude-runner
+    tag: 2.1.270

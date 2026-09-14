@@ -1,0 +1,97 @@
+{{- $labels := dict "root" . "component" "session-controller" -}}
+{{- $s := .Values.sessionController -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "shock.componentName" $labels }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "shock.labels" $labels | nindent 4 }}
+spec:
+  replicas: 1
+  # No leader election: every mutation is UID + resourceVersion pinned, so a
+  # brief overlap during rescheduling is safe. Recreate keeps it brief.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "shock.selectorLabels" $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "shock.labels" $labels | nindent 8 }}
+      {{- with $s.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "shock.componentName" $labels }}
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.orchestrator.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $s.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $s.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $s.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: session-controller
+          image: {{ include "shock.image" (dict "image" .Values.orchestrator.image "name" "orchestrator") | quote }}
+          imagePullPolicy: {{ .Values.orchestrator.image.pullPolicy }}
+          command: ["shock", "session-controller"]
+          env:
+            - name: SHOCK_RELEASE
+              value: {{ .Release.Name | quote }}
+            - name: SHOCK_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SHOCK_BIND_ADDRESS
+              value: {{ printf ":%d" (int $s.healthPort) | quote }}
+            - name: SHOCK_RESYNC
+              value: {{ printf "%ds" (int $s.resyncSeconds) | quote }}
+            - name: SHOCK_GC_ENABLED
+              value: {{ $s.gc.enabled | quote }}
+            - name: SHOCK_GC_MAX_IDLE
+              value: {{ $s.gc.maxIdle | quote }}
+            - name: SHOCK_ZOMBIE_ENABLED
+              value: {{ $s.zombie.enabled | quote }}
+            - name: SHOCK_ZOMBIE_ALERT_AFTER
+              value: {{ $s.zombie.alertAfter | quote }}
+          ports:
+            - name: health
+              containerPort: {{ $s.healthPort }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          {{- with $s.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

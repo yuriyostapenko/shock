@@ -1,0 +1,7 @@
+# e2e-only image: the shock binary without claude, for the session controller
+# Deployment. The orchestrator runs with replicas 0 in e2e; the hook binary is
+# invoked directly by the test as the fake control-plane stub.
+FROM gcr.io/distroless/static-debian13:nonroot
+COPY bin/shock-linux /usr/local/bin/shock
+USER 65532
+ENTRYPOINT ["/usr/local/bin/shock"]

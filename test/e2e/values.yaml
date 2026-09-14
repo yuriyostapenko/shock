@@ -1,0 +1,58 @@
+# e2e values: a fake runner (busybox) that records each order on the PVC,
+# sleeps and exits as the "work order" tells it to. The orchestrator process
+# is not run; the test invokes the hook binary directly.
+environment:
+  existingSecret: e2e-environment
+orchestrator:
+  image:
+    repository: shock-e2e/controller
+    tag: dev
+    pullPolicy: Never
+  replicas: 0
+  pdb:
+    enabled: false
+sessionController:
+  resyncSeconds: 30
+  gc:
+    enabled: true
+    maxIdle: 336h
+  zombie:
+    enabled: true
+    alertAfter: 1m
+runner:
+  image:
+    repository: docker.io/library/busybox
+    tag: "1.38"
+  terminationGracePeriodSeconds: 20
+  command: ["sh", "-c"]
+  args:
+    - |
+      set -u
+      wo=/var/run/claude/work-order/work-order
+      # The synthetic work order is a shell fragment: SLEEP=.. EXIT=.. ORDER=..
+      eval "$(cat "$wo")"
+      mkdir -p /workspace/marks
+      echo "$(hostname) $(cat "$wo")" >> /workspace/marks/log
+      echo "$ORDER" > /workspace/marks/last-order
+      i=0; while [ "$i" -lt "${SLEEP:-10}" ]; do sleep 1; i=$((i+1)); done
+      exit "${EXIT:-0}"
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    allowPrivilegeEscalation: false
+    seccompProfile:
+      type: RuntimeDefault
+    capabilities:
+      drop: ["ALL"]
+  podSecurityContext:
+    fsGroup: 65534
+  storage:
+    size: 100Mi
+    # kind's local-path provisioner is not a CSI driver; RWOP enforcement
+    # needs one, so e2e asserts the configured mode is what the PVC reports.
+    accessMode: ReadWriteOnce
+network:
+  mode: none
+monitoring:
+  enabled: false

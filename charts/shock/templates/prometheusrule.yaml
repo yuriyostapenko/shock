@@ -1,0 +1,106 @@
+{{- if .Values.monitoring.enabled }}
+{{- $labels := dict "root" . "component" "monitoring" }}
+{{- $o := .Values.orchestrator }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "shock.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "shock.labels" $labels | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: {{ .Release.Name }}.claude-code-self-hosted-runner
+      rules:
+        - alert: ClaudeRunnerPollStale
+          expr: claude_code_self_hosted_runner_last_poll_age_seconds{namespace={{ .Release.Namespace | quote }}} > 60
+          for: 2m
+          labels: {severity: warning}
+          annotations:
+            summary: "Runner {{ "{{ $labels.pod }}" }} has not polled in >60s"
+        - alert: ClaudeRunnerInitErrorsHigh
+          expr: increase(claude_code_self_hosted_runner_session_init_errors_total{namespace={{ .Release.Namespace | quote }}}[10m]) > 3
+          for: 5m
+          labels: {severity: warning}
+          annotations:
+            summary: "Runner {{ "{{ $labels.pod }}" }}: >3 session init failures in 10m"
+        - alert: ClaudeRunnerPollErrors
+          expr: sum by (pod) (rate(claude_code_self_hosted_runner_poll_errors_total{namespace={{ .Release.Namespace | quote }}}[5m])) > 0
+          for: 2m
+          labels: {severity: warning}
+          annotations:
+            summary: "Runner {{ "{{ $labels.pod }}" }}: PollWork failing"
+    - name: {{ .Release.Name }}.claude-code-self-hosted-orchestrator
+      rules:
+        - alert: ClaudeOrchestratorDisconnected
+          expr: claude_code_self_hosted_orchestrator_connected{namespace={{ .Release.Namespace | quote }}} == 0
+          for: 2m
+          labels: {severity: critical}
+          annotations:
+            summary: "Orchestrator {{ "{{ $labels.pod }}" }} cannot reach the Anthropic control plane"
+        - alert: ClaudeOrchestratorPollStale
+          # The poll loop waits on hook execution: hookTimeout plus margin.
+          expr: claude_code_self_hosted_orchestrator_last_poll_age_seconds{namespace={{ .Release.Namespace | quote }}} > {{ add $o.hookTimeout 30 }}
+          for: 2m
+          labels: {severity: warning}
+          annotations:
+            summary: "Orchestrator {{ "{{ $labels.pod }}" }} has not polled in >{{ add $o.hookTimeout 30 }}s"
+        - alert: ClaudeOrchestratorCircuitBroken
+          expr: claude_code_self_hosted_orchestrator_queue_circuit_broken_sessions{namespace={{ .Release.Namespace | quote }}} > 0
+          for: 1m
+          labels: {severity: critical}
+          annotations:
+            summary: "{{ "{{ $value }}" }} sessions circuit-broken; spawn-runner hook returned exit >= 2. Fix the cause, then Retry from the Activity tab"
+        - alert: ClaudeOrchestratorPollErrors
+          expr: sum by (pod) (rate(claude_code_self_hosted_orchestrator_poll_errors_total{namespace={{ .Release.Namespace | quote }}}[5m])) > 0
+          for: 2m
+          labels: {severity: warning}
+          annotations:
+            summary: "Orchestrator {{ "{{ $labels.pod }}" }}: PollSpawnHints failing"
+        - alert: ClaudeOrchestratorSpawnHookFailing
+          expr: sum by (pod) (increase(claude_code_self_hosted_orchestrator_spawn_hooks_total{namespace={{ .Release.Namespace | quote }}, result!="ok"}[5m])) > 3
+          for: 5m
+          labels: {severity: warning}
+          annotations:
+            summary: "Orchestrator {{ "{{ $labels.pod }}" }}: >3 spawn-runner hook failures in 5m"
+    - name: {{ .Release.Name }}.shock
+      rules:
+        - alert: ShockSleepTransitionFailed
+          expr: shock_sandbox_condition_status{namespace={{ .Release.Namespace | quote }}, type="Finished", operating_mode="Running", current="true"} == 1
+          for: {{ .Values.monitoring.prometheusRule.sleepTransitionFor }}
+          labels: {severity: warning}
+          annotations:
+            summary: "Sandbox {{ "{{ $labels.sandbox }}" }} finished but is still Running: the session controller did not issue Sleep"
+        - alert: ShockMultiplePods
+          expr: count by (sandbox) (shock_sandbox_condition_status{namespace={{ .Release.Namespace | quote }}, type="Ready", reason="MultiplePods"}) > 0
+          for: 1m
+          labels: {severity: critical}
+          annotations:
+            summary: "Sandbox {{ "{{ $labels.sandbox }}" }} has more than one owned Pod; the sandbox controller refuses to act. Never force-delete Pods"
+        - alert: ShockSpawnStuck
+          # Covers a cold start with no owned Pod and a wake that never fired.
+          expr: shock_sandbox_pending_spawn_age_seconds{namespace={{ .Release.Namespace | quote }}} > {{ $o.expectedSpawnSeconds }}
+          labels: {severity: warning}
+          annotations:
+            summary: "Sandbox {{ "{{ $labels.sandbox }}" }} has a pending spawn older than expectedSpawnSeconds ({{ $o.expectedSpawnSeconds }}s)"
+        - alert: ShockSessionControllerNotReady
+          expr: (shock_crd_served{namespace={{ .Release.Namespace | quote }}} == 0) or absent(shock_crd_served{namespace={{ .Release.Namespace | quote }}})
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: "SHOCK session controller in {{ .Release.Namespace }} is not ready: cache unsynced, CRD absent, or not scraped"
+        - alert: ShockReconcileErrors
+          expr: sum(rate(controller_runtime_reconcile_errors_total{namespace={{ .Release.Namespace | quote }}, controller="shock-session"}[5m])) > 0
+          for: 15m
+          labels: {severity: warning}
+          annotations:
+            summary: "SHOCK session controller reconciles keep failing (see Events on the affected Sandboxes)"
+        - alert: ShockSessionStranded
+          expr: shock_sandbox_pod_terminating_seconds{namespace={{ .Release.Namespace | quote }}} > {{ include "shock.durationSeconds" .Values.sessionController.zombie.alertAfter }}
+          labels: {severity: critical}
+          annotations:
+            summary: "Pod {{ "{{ $labels.pod }}" }} of Sandbox {{ "{{ $labels.sandbox }}" }} is stuck Terminating: session stranded on an unhealthy node. Requires cluster-admin action; SHOCK will not resolve it"
+{{- end }}

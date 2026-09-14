@@ -1,0 +1,151 @@
+# Default values for shock. See README.md for the runner image contract and
+# operational notes. agent-sandbox (https://github.com/kubernetes-sigs/agent-sandbox)
+# must be installed separately; this chart never renders its CRDs or controller.
+
+environment:
+  # Name of an existing Secret with key `environment-secret` holding the
+  # environment key from the Cloud environments admin page. Required unless
+  # secretValue is set.
+  existingSecret: ""
+  # Inline value rendered into a chart-managed Secret. Prefer existingSecret;
+  # values files with credentials tend to end up in git.
+  secretValue: ""
+
+orchestrator:
+  image:
+    repository: ""   # required: the SHOCK image (claude + shock binary + /hooks shim)
+    tag: ""          # required
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  replicas: 2
+  # Server-side spawn lease (p99 wake including the initial suspension
+  # round-trip, session-controller latency, image pull and pod start).
+  # All replicas share it. Range enforced by Anthropic: 10..3600.
+  expectedSpawnSeconds: 180
+  # Hook process budget. Template rendering fails unless hookTimeout + 5 < expectedSpawnSeconds.
+  hookTimeout: 30
+  hookConcurrency: 4
+  # Pre-warm OFF by default. Standby runners are unbound: they never get a
+  # per-session disk, so pre-warming only lowers cold-start latency for new sessions.
+  minIdle: 0
+  healthPort: 8080
+  extraEnv: []       # e.g. HTTPS_PROXY / NO_PROXY for the orchestrator process
+  extraArgs: []      # appended to the orchestrator command
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  # Defaults to preferred anti-affinity across nodes on the selector labels.
+  affinity: {}
+  priorityClassName: ""
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+sessionController:
+  resyncSeconds: 300
+  gc:
+    enabled: true
+    maxIdle: 336h           # delete Sandbox + PVC + work-order Secrets after 14 days asleep
+  zombie:
+    enabled: true
+    alertAfter: 5m          # alarm-only; the session controller never deletes Pods
+  healthPort: 8080          # serves /metrics, /healthz and /readyz
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  priorityClassName: ""
+
+runner:
+  image:
+    repository: ""   # required; contract in README
+    tag: ""          # required
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  # Same on every runner in the environment: recorded absolute paths must
+  # resolve on resume. This is the PVC mount path.
+  baseDir: /workspace
+  runtimeClassName: ""    # e.g. kata, gvisor; empty = runc
+  # Must cover the runner's SIGKILL floor: 75 s at defaults, 105 s with push-outcome.
+  terminationGracePeriodSeconds: 120
+  healthPort: 8080
+  flags:
+    releaseIdleSessionMin: 30
+    killSessionAfterMin: 480
+    exitIfUnusedMin: 10
+    pushOutcomeOnRelease: true
+  # Appended to the rendered `claude self-hosted-runner` args, e.g.
+  # ["--exec-path", "/opt/claude/wrapper.sh"] for the credentials wrapper.
+  extraArgs: []
+  # Replace the entire container command (then `args` is used verbatim and
+  # flags/extraArgs are ignored). Intended for fake runners in e2e tests.
+  command: []
+  args: []
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  resources: {}
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    seccompProfile:
+      type: RuntimeDefault
+    capabilities:
+      drop: ["ALL"]
+  # fsGroup lets a non-root runner write to a freshly provisioned PVC.
+  podSecurityContext:
+    fsGroup: 1000
+  serviceAccountName: ""  # no token is ever mounted, whatever account is used
+  priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podLabels: {}
+  podAnnotations: {}
+  storage:
+    className: ""
+    size: 20Gi
+    # Immutable after Sandbox creation: existing sessions keep the mode they
+    # were born with. Decide before first install.
+    accessMode: ReadWriteOncePod
+  # Deep-merged over the rendered Sandbox podTemplate by Helm (maps merge,
+  # lists replace). The hook then forces the template contract fields; see README.
+  podTemplate: {}
+
+network:
+  # cilium: CiliumNetworkPolicy with toFQDNs. kubernetes: plain NetworkPolicy
+  # without FQDN filtering (documented gap). none: render nothing.
+  mode: cilium
+  # host or host:port (443 default). One list for every runner egress
+  # destination: Anthropic, git hosts, package registries or mirrors.
+  # Full current list: https://code.claude.com/docs/en/self-hosted-environments-deploy#network-requirements
+  allowedFQDNs:
+    - api.anthropic.com
+    - github.com
+  dns:
+    namespace: kube-system
+    podLabels:
+      k8s-app: kube-dns
+  metadataCIDR: 169.254.169.254/32
+
+monitoring:
+  enabled: true
+  podMonitor:
+    interval: 30s
+    labels: {}
+    # Drops the `email` label (PII) from claude_code_self_hosted_runner_locked_account.
+    dropEmailLabel: true
+  prometheusRule:
+    labels: {}
+    sleepTransitionFor: 2m

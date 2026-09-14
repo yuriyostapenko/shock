@@ -745,3 +745,66 @@ cascade and upstream reconciliation tests require kind with the relevant control
 - https://code.claude.com/docs/en/self-hosted-environments-identity (work orders, session token)
 - https://github.com/kubernetes-sigs/agent-sandbox (v1beta1 API, `controllers/sandbox_controller.go`)
 - https://agent-sandbox.sigs.k8s.io/docs/ (Sandbox lifecycle, API reference)
+
+### Verification record (2026-09-14, first implementation)
+
+Pinned: agent-sandbox **v1.0.2** (`sigs.k8s.io/agent-sandbox`, `k8s.io/*` v0.37.0,
+controller-runtime v0.25.1), Go 1.27, Helm 4.2.3 locally (CI pins v4.3.0), kind 0.33 with `kindest/node:v1.35.0` locally (CI matrix v1.35.8 and v1.37.0),
+envtest 1.35.0 and 1.37.0, Claude Code 2.1.270 as the image build default
+(native binary from downloads.claude.ai per the deploy doc's recipe; bases `golang:1.27-bookworm` and
+`debian:bookworm-slim`, as the doc shows; the doc's version floor is 2.1.224).
+
+1. **Hook env vars** (configuration doc, "The spawn-runner hook"): `CLAUDE_RUNNER_WORK_ORDER_FILE`
+   (temp file, deleted after exit), `CLAUDE_RUNNER_ORDER_ID` (idempotency key, safe for
+   Kubernetes names), `CLAUDE_RUNNER_SESSION_ID` / `_SESSION_UUID` (empty for pre-warm),
+   `CLAUDE_RUNNER_ATTEMPT` ("how many spawn requests this session has had", `0` for pre-warm),
+   `CLAUDE_RUNNER_ACCOUNT_ID` (tagged, empty for Claude Tag sessions), `CLAUDE_RUNNER_ACCOUNT_EMAIL`
+   (PII), `CLAUDE_RUNNER_PRIMARY_REPO_URL`, `CLAUDE_RUNNER_POOL_ID`, plus `_ORDER_SERVER_TIME`,
+   `_PRIMARY_REPO_REVISION`, `_REPO_SOURCES`, `_CORRELATION_ID`, `_CLIENT_PLATFORM`. Exit codes:
+   0 submitted, 1 retryable (backoff and re-offer), ≥2 circuit-broken until an Owner retries;
+   stderr tail is surfaced as the failure reason. Re-requests after `--expected-spawn-seconds`
+   carry a fresh order id. The doc describes the attempt as a per-session count of spawn
+   requests and redelivery as the same request; it does not state in so many words that the
+   attempt is stable on redelivery. The implementation therefore treats **order id equality as
+   redelivery regardless of attempt** and uses the attempt only to order distinct orders, so a
+   redelivery carrying a surprising attempt cannot roll state back or be rejected.
+2. **Egress list** (deploy doc, "Network requirements"): `api.anthropic.com:443` (control plane,
+   inference, JWKS, git proxy), the git host (443 or 22), and conditionally `downloads.claude.ai`,
+   `storage.googleapis.com`, `code.claude.com`, `claude.com`, `*.frame.claudeusercontent.com`,
+   `registry.npmjs.org`, `http-intake.logs.us5.datadoghq.com`, `browser-intake-us5-datadoghq.com`.
+   Not needed: `statsig.anthropic.com`, `*.sentry.io`, `claude.ai`, `platform.claude.com`. The chart
+   default is the minimum (`api.anthropic.com`, `github.com`); extend `network.allowedFQDNs`.
+3. **Condition and reason strings** (v1.0.2 `api/v1beta1/sandbox_types.go`): `Suspended` with
+   reasons `PodTerminated` (True), `PodTerminating` (False, replaces deprecated `PodNotTerminated`),
+   `PodNotOwned`, `NotSuspended` (False while Running), `PodStateUnknown` (Unknown); `Ready` with
+   `DependenciesReady`, `DependenciesNotReady`, `MultiplePods`, `SandboxSuspended`, `PodSucceeded`,
+   `PodFailed`, `SandboxExpired`, `ReconcilerError`; `Finished` with `PodSucceeded`/`PodFailed`,
+   present only while a terminal owned pod exists; `PodScheduled` mirrored from the pod. The
+   controller imports the constants; the e2e conformance test asserts the literals.
+4. **Work-order delivery**: file flag `--environment-secret-file <path>` or
+   `SELF_HOSTED_RUNNER_ENVIRONMENT_SECRET` (value). The chart mounts the Secret and uses the flag.
+5. **claude flags**: `claude self-hosted-runner --help` and `... orchestrator --help` were run in
+   the built image (Claude Code 2.1.270, native binary). Every flag the chart renders exists under the spelling in
+   section 8: runner `--capacity`, `--base-dir`, `--environment-secret-file`, `--lock-to-account`,
+   `--release-idle-session-min`, `--kill-session-after-min`, `--exit-if-unused-min`,
+   `--push-outcome-on-release`, `--health-port`, `--exec-path`; orchestrator `--hooks-dir`,
+   `--environment-secret-file`, `--expected-spawn-seconds`, `--hook-timeout`, `--hook-concurrency`,
+   `--min-idle`, `--health-port`. `--kill-session-after-min` releases rather than terminates on ≥ 2.1.260.
+6. **kubeVersion**: v1.0.2 pins `k8s.io/*` v0.37.0 → `kubeVersion: ">=1.35.0-0"`.
+7. **Idle-suspend**: v1.0.2 `SandboxSpec` has no auto-suspension field; nothing to opt out of.
+   Re-check on every bump.
+
+Upstream behaviors relied on, re-read in v1.0.2 `controllers/sandbox_controller.go`: a terminal
+pod under `Running` is returned as-is (no recreate); `Suspended` deletes any owned pod regardless
+of phase and reports `PodTerminating` until it is gone; resume recreates the pod from `podTemplate`
+and mounts `<claimTemplate>-<sandboxName>`; two owned pods → `Ready=False/MultiplePods` and the
+controller refuses to act; conditions carry `ObservedGeneration: sandbox.Generation`;
+`Finished` and `PodScheduled` are removed when not applicable, `Suspended` never is; user
+`podTemplate` labels propagate to the pod except `agents.x-k8s.io/*` keys.
+
+Decisions taken where the spec left a choice: Sandbox names are **not** release-prefixed; a
+session belongs to exactly one release and the hook exits 2 on a Sandbox labeled for another
+release. On a higher attempt the hook also installs the current chart pod template (carrying the
+installed order/Secret), so image and flag changes reach sessions at their next spawn without
+touching sleeping Sandboxes. The session controller uses the `events.k8s.io` recorder. Pre-warm
+runners (`minIdle > 0`) are Jobs with an emptyDir workspace, owned Secret, no account lock.

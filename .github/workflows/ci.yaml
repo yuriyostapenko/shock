@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.27"
+  HELM_VERSION: v4.3.0
+
+jobs:
+  go:
+    name: go (fmt, vet, lint, unit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: gofmt
+        run: test -z "$(gofmt -l cmd internal test)"
+      - run: go vet ./...
+      - uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.13.2
+      - run: go test ./internal/... ./cmd/... -count=1
+
+  chart:
+    name: chart (ct lint, render, golden)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.14"
+      - uses: helm/chart-testing-action@v2.8.0
+      - name: ct lint
+        run: ct lint --charts charts/shock --validate-maintainers=false --helm-lint-extra-args "-f test/values/minimal.yaml"
+      - name: helm template in every network mode, with no CRDs present
+        run: |
+          for mode in cilium kubernetes none; do
+            helm template shock charts/shock -n shock -f test/values/minimal.yaml --kube-version 1.35.0 --set network.mode=$mode > /dev/null
+          done
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: golden (typed decode of the rendered Sandbox template)
+        run: go test ./test/chart/... -count=1
+
+  envtest:
+    name: envtest (API concurrency)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.25
+      - run: make envtest ENVTEST_K8S=1.35.x
+
+  e2e:
+    name: e2e kind (agent-sandbox ${{ matrix.agent_sandbox }}, k8s ${{ matrix.kube }})
+    runs-on: ubuntu-latest
+    needs: [go, chart]
+    strategy:
+      fail-fast: false
+      matrix:
+        # The tested range. Add a version only after its conformance run passes.
+        agent_sandbox: [v1.0.2]
+        # Oldest and newest allowed minors for Chart.yaml kubeVersion.
+        kube: [v1.35.8, v1.37.0]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - uses: helm/kind-action@v1.15.0
+        with:
+          install_only: true
+      - run: make e2e-kind KIND_NODE_IMAGE=kindest/node:${{ matrix.kube }} AGENT_SANDBOX_VERSION=${{ matrix.agent_sandbox }}
+      - name: controller logs on failure
+        if: failure()
+        run: kubectl -n shock-e2e logs -l app.kubernetes.io/name=session-controller --tail=500 || true

@@ -1,0 +1,180 @@
+{{- include "shock.validate" . -}}
+{{- $labels := dict "root" . "component" "orchestrator" -}}
+{{- $o := .Values.orchestrator -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "shock.componentName" $labels }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "shock.labels" $labels | nindent 4 }}
+spec:
+  replicas: {{ $o.replicas }}
+  selector:
+    matchLabels:
+      {{- include "shock.selectorLabels" $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "shock.labels" $labels | nindent 8 }}
+      annotations:
+        checksum/sandbox-template: {{ include (print $.Template.BasePath "/sandbox-template-configmap.yaml") . | sha256sum }}
+        {{- with $o.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "shock.componentName" $labels }}
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: {{ add $o.hookTimeout 15 }}
+      {{- with $o.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $o.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $o.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $o.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $o.affinity }}
+      affinity:
+        {{- toYaml $o.affinity | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "shock.selectorLabels" $labels | nindent 20 }}
+      {{- end }}
+      containers:
+        - name: orchestrator
+          image: {{ include "shock.image" (dict "image" $o.image "name" "orchestrator") | quote }}
+          imagePullPolicy: {{ $o.image.pullPolicy }}
+          command: ["claude"]
+          args:
+            - self-hosted-runner
+            - orchestrator
+            # Nothing mounts at /hooks: the spawn-runner shim ships in the image.
+            - --hooks-dir
+            - /hooks
+            - --environment-secret-file
+            - /secrets/environment-secret
+            - --expected-spawn-seconds
+            - {{ $o.expectedSpawnSeconds | quote }}
+            - --hook-timeout
+            - {{ $o.hookTimeout | quote }}
+            - --hook-concurrency
+            - {{ $o.hookConcurrency | quote }}
+            - --min-idle
+            - {{ $o.minIdle | quote }}
+            - --health-port
+            - {{ $o.healthPort | quote }}
+            {{- range $o.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            # Consumed by `shock hook spawn-runner`.
+            - name: SHOCK_RELEASE
+              value: {{ .Release.Name | quote }}
+            - name: SHOCK_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SHOCK_TEMPLATE_PATH
+              value: /etc/shock/sandbox-template.yaml
+            - name: SHOCK_RUNNER_BASE_DIR
+              value: {{ .Values.runner.baseDir | quote }}
+            - name: SHOCK_RUNNER_TERMINATION_GRACE_PERIOD_SECONDS
+              value: {{ .Values.runner.terminationGracePeriodSeconds | quote }}
+            - name: SHOCK_MIN_IDLE
+              value: {{ $o.minIdle | quote }}
+            - name: SHOCK_HOOK_TIMEOUT_SECONDS
+              value: {{ $o.hookTimeout | quote }}
+            {{- with $o.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: health
+              containerPort: {{ $o.healthPort }}
+              protocol: TCP
+          # /healthz answers 200 whenever the process is alive; poll health is
+          # observed through metrics (orchestrator_connected), not probes.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          {{- with $o.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: environment-secret
+              mountPath: /secrets
+              readOnly: true
+            - name: sandbox-template
+              mountPath: /etc/shock
+              readOnly: true
+      volumes:
+        - name: environment-secret
+          secret:
+            secretName: {{ include "shock.environmentSecretName" . }}
+            items:
+              - key: environment-secret
+                path: environment-secret
+        - name: sandbox-template
+          configMap:
+            name: {{ include "shock.componentName" (dict "root" . "component" "sandbox-template") }}
+{{- if $o.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "shock.componentName" $labels }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "shock.labels" $labels | nindent 4 }}
+spec:
+  minAvailable: {{ $o.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "shock.selectorLabels" $labels | nindent 6 }}
+{{- end }}
+{{- if .Values.environment.secretValue }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "shock.environmentSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "shock.labels" $labels | nindent 4 }}
+type: Opaque
+stringData:
+  environment-secret: {{ .Values.environment.secretValue | quote }}
+{{- end }}

@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "shock values",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["environment", "orchestrator", "sessionController", "runner", "network", "monitoring"],
+  "$defs": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": {"type": "string"},
+        "tag": {"type": "string"},
+        "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "duration": {"type": "string", "pattern": "^[0-9]+(h|m|s)$"},
+    "stringMap": {"type": "object", "additionalProperties": {"type": "string"}},
+    "objectList": {"type": "array", "items": {"type": "object"}},
+    "stringList": {"type": "array", "items": {"type": "string"}}
+  },
+  "properties": {
+    "global": {"type": "object"},
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": {"type": "string"},
+        "secretValue": {"type": "string"}
+      }
+    },
+    "orchestrator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "replicas", "expectedSpawnSeconds", "hookTimeout", "hookConcurrency", "minIdle"],
+      "properties": {
+        "image": {"$ref": "#/$defs/image"},
+        "imagePullSecrets": {"$ref": "#/$defs/objectList"},
+        "replicas": {"type": "integer", "minimum": 0},
+        "expectedSpawnSeconds": {"type": "integer", "minimum": 10, "maximum": 3600},
+        "hookTimeout": {"type": "integer", "minimum": 1},
+        "hookConcurrency": {"type": "integer", "minimum": 1},
+        "minIdle": {"type": "integer", "minimum": 0},
+        "healthPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "extraEnv": {"$ref": "#/$defs/objectList"},
+        "extraArgs": {"$ref": "#/$defs/stringList"},
+        "resources": {"type": "object"},
+        "podAnnotations": {"$ref": "#/$defs/stringMap"},
+        "nodeSelector": {"$ref": "#/$defs/stringMap"},
+        "tolerations": {"$ref": "#/$defs/objectList"},
+        "affinity": {"type": "object"},
+        "priorityClassName": {"type": "string"},
+        "pdb": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "minAvailable": {"type": ["integer", "string"]}
+          }
+        }
+      }
+    },
+    "sessionController": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resyncSeconds", "gc", "zombie"],
+      "properties": {
+        "resyncSeconds": {"type": "integer", "minimum": 10},
+        "gc": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "maxIdle"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "maxIdle": {"$ref": "#/$defs/duration"}
+          }
+        },
+        "zombie": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "alertAfter"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "alertAfter": {"$ref": "#/$defs/duration"}
+          }
+        },
+        "healthPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "resources": {"type": "object"},
+        "podAnnotations": {"$ref": "#/$defs/stringMap"},
+        "nodeSelector": {"$ref": "#/$defs/stringMap"},
+        "tolerations": {"$ref": "#/$defs/objectList"},
+        "priorityClassName": {"type": "string"}
+      }
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "baseDir", "terminationGracePeriodSeconds", "flags", "storage"],
+      "properties": {
+        "image": {"$ref": "#/$defs/image"},
+        "imagePullSecrets": {"$ref": "#/$defs/objectList"},
+        "baseDir": {"type": "string", "pattern": "^/"},
+        "runtimeClassName": {"type": "string"},
+        "terminationGracePeriodSeconds": {"type": "integer", "minimum": 0},
+        "healthPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "flags": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["releaseIdleSessionMin", "killSessionAfterMin", "exitIfUnusedMin", "pushOutcomeOnRelease"],
+          "properties": {
+            "releaseIdleSessionMin": {"type": "integer", "minimum": 0, "maximum": 10080},
+            "killSessionAfterMin": {"type": "integer", "minimum": 0, "maximum": 10080},
+            "exitIfUnusedMin": {"type": "integer", "minimum": 0, "maximum": 10080},
+            "pushOutcomeOnRelease": {"type": "boolean"}
+          }
+        },
+        "extraArgs": {"$ref": "#/$defs/stringList"},
+        "command": {"$ref": "#/$defs/stringList"},
+        "args": {"$ref": "#/$defs/stringList"},
+        "extraEnv": {"$ref": "#/$defs/objectList"},
+        "extraVolumes": {"$ref": "#/$defs/objectList"},
+        "extraVolumeMounts": {"$ref": "#/$defs/objectList"},
+        "resources": {"type": "object"},
+        "securityContext": {"type": "object"},
+        "podSecurityContext": {"type": "object"},
+        "serviceAccountName": {"type": "string"},
+        "priorityClassName": {"type": "string"},
+        "nodeSelector": {"$ref": "#/$defs/stringMap"},
+        "tolerations": {"$ref": "#/$defs/objectList"},
+        "affinity": {"type": "object"},
+        "podLabels": {"$ref": "#/$defs/stringMap"},
+        "podAnnotations": {"$ref": "#/$defs/stringMap"},
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["size", "accessMode"],
+          "properties": {
+            "className": {"type": "string"},
+            "size": {"type": "string", "pattern": "^[0-9]+(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|k|m)?$"},
+            "accessMode": {"type": "string", "enum": ["ReadWriteOncePod", "ReadWriteOnce"]}
+          }
+        },
+        "podTemplate": {"type": "object"}
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "allowedFQDNs"],
+      "properties": {
+        "mode": {"type": "string", "enum": ["cilium", "kubernetes", "none"]},
+        "allowedFQDNs": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9*.-]+(:[0-9]{1,5})?$"}
+        },
+        "dns": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "namespace": {"type": "string"},
+            "podLabels": {"$ref": "#/$defs/stringMap"}
+          }
+        },
+        "metadataCIDR": {"type": "string"}
+      }
+    },
+    "monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "podMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "interval": {"$ref": "#/$defs/duration"},
+            "labels": {"$ref": "#/$defs/stringMap"},
+            "dropEmailLabel": {"type": "boolean"}
+          }
+        },
+        "prometheusRule": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "labels": {"$ref": "#/$defs/stringMap"},
+            "sleepTransitionFor": {"$ref": "#/$defs/duration"}
+          }
+        }
+      }
+    }
+  }
+}
