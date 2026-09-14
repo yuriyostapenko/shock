@@ -50,8 +50,11 @@ image:
 	docker build -f images/orchestrator/Dockerfile -t $(IMAGE) .
 
 e2e-setup:
+	mkdir -p bin
 	$(KIND) get clusters | grep -qx $(KIND_CLUSTER) || $(KIND) create cluster --name $(KIND_CLUSTER) --image $(KIND_NODE_IMAGE) --wait 120s
-	kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/$(AGENT_SANDBOX_VERSION)/sandbox.yaml
+	curl --retry 8 --retry-delay 3 --retry-all-errors -fsSL -o bin/agent-sandbox-$(AGENT_SANDBOX_VERSION).yaml \
+	  https://github.com/kubernetes-sigs/agent-sandbox/releases/download/$(AGENT_SANDBOX_VERSION)/sandbox.yaml
+	kubectl apply -f bin/agent-sandbox-$(AGENT_SANDBOX_VERSION).yaml
 	kubectl -n agent-sandbox-system rollout status deploy/agent-sandbox-controller --timeout=180s
 	CGO_ENABLED=0 GOOS=linux $(GO) build -trimpath -o bin/shock-linux ./cmd/shock
 	docker build -f test/e2e/Dockerfile.controller -t shock-e2e/controller:dev .
