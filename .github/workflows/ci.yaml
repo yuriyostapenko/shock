@@ -11,6 +11,7 @@ permissions:
 env:
   GO_VERSION: "1.27"
   HELM_VERSION: v4.3.0
+  CT_VERSION: v3.14.0
 
 jobs:
   go:
@@ -39,12 +40,13 @@ jobs:
       - uses: azure/setup-helm@v5.0.1
         with:
           version: ${{ env.HELM_VERSION }}
-      - uses: actions/setup-python@v7.0.0
-        with:
-          python-version: "3.14"
-      - uses: helm/chart-testing-action@v2.8.0
+      # The official chart-testing image bundles ct, helm, yamllint and yamale,
+      # so no Python setup or nested installer actions are needed.
       - name: ct lint
-        run: ct lint --charts charts/shock --validate-maintainers=false --helm-lint-extra-args "-f test/values/minimal.yaml"
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work quay.io/helmpack/chart-testing:${{ env.CT_VERSION }} \
+            ct lint --charts charts/shock --remote origin --target-branch main \
+              --validate-maintainers=false --helm-lint-extra-args "-f test/values/minimal.yaml"
       - name: helm template in every network mode, with no CRDs present
         run: |
           for mode in cilium kubernetes none; do
