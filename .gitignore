@@ -1,0 +1,29 @@
+# Operating systems and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local credentials and environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+kubeconfig
+kubeconfig.*
+
+# Build and test output
+/bin/
+/dist/
+/coverage/
+coverage.out
+*.test
+*.prof
+
+# Packaged Helm charts and downloaded chart dependencies
+/charts/*/charts/
+/charts/*/*.tgz
