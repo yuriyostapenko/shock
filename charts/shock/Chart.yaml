@@ -20,5 +20,5 @@ keywords:
   - claude-code
   - self-hosted-runner
   - agent-sandbox
-annotations:
-  shock.invalid/agent-sandbox-tested: "v1.0.2"
+# The tested agent-sandbox range is the e2e matrix in .github/workflows/ci.yaml,
+# not a chart annotation: nothing at install or run time consumes it (spec §12).
