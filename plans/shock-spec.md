@@ -751,8 +751,8 @@ cascade and upstream reconciliation tests require kind with the relevant control
 Pinned: agent-sandbox **v1.0.2** (`sigs.k8s.io/agent-sandbox`, `k8s.io/*` v0.37.0,
 controller-runtime v0.25.1), Go 1.27, Helm 4.2.3 locally (CI pins v4.3.0), kind 0.33 with `kindest/node:v1.35.0` locally (CI matrix v1.35.8 and v1.37.0),
 envtest 1.35.0 and 1.37.0, Claude Code 2.1.270 as the image build default
-(native binary from downloads.claude.ai per the deploy doc's recipe; bases `golang:1.27-bookworm` and
-`debian:bookworm-slim`, as the doc shows; the doc's version floor is 2.1.224).
+(native binary from downloads.claude.ai per the deploy doc's recipe, on `golang:1.27-trixie` and
+`debian:trixie-slim`; the doc's own example uses bookworm-slim and its version floor is 2.1.224).
 
 1. **Hook env vars** (configuration doc, "The spawn-runner hook"): `CLAUDE_RUNNER_WORK_ORDER_FILE`
    (temp file, deleted after exit), `CLAUDE_RUNNER_ORDER_ID` (idempotency key, safe for

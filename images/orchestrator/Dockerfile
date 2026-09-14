@@ -3,8 +3,8 @@
 # controller: `claude` for the orchestrator process, `shock` for the hook and
 # controller, and the two-line /hooks/spawn-runner shim baked in.
 #
-# The runtime stage follows Anthropic's deploy-doc recipe: debian:bookworm-slim
-# plus the native claude binary from the Claude Code release location
+# The runtime stage installs the native claude binary from the Claude Code
+# release location, as in Anthropic's deploy-doc recipe
 # (https://code.claude.com/docs/en/self-hosted-environments-deploy#build-the-runner-image).
 # Verify the download against the release's signed manifest in your own
 # pipeline if your policy requires it.
@@ -12,7 +12,7 @@
 ARG GO_VERSION=1.27
 ARG CLAUDE_CODE_VERSION=2.1.270
 
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-trixie AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/shock ./cmd/shock
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 ARG CLAUDE_CODE_VERSION
 ARG TARGETARCH
 RUN apt-get update \
