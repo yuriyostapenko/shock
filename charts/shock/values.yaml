@@ -198,6 +198,8 @@ network:
     # .NET SDK downloads
     - builds.dotnet.microsoft.com
     - download.visualstudio.microsoft.com
+    # Sigstore: cosign keyless verification (Fulcio, Rekor, TUF root)
+    - "*.sigstore.dev"
     # Container registry hosts behind the fronts Anthropic's list names
     # (anthropics/claude-code#71629): layer blobs come from a different host.
     # ECR Public serves layers from per-distribution *.cloudfront.net hosts;
