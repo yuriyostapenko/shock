@@ -71,8 +71,9 @@ published as `ghcr.io/yuriyostapenko/shock-runner:X.Y.Z` and pinned by digest
 in the released chart). It follows Anthropic's recipe: `debian:trixie-slim`,
 `git` 2.47 and `openssh-client`, the native `claude` binary verified against
 the release manifest, `libicu76` and `LANG=C.UTF-8` (ICU and a UTF-8 locale,
-which .NET and other runtimes installed later expect), and the doc's system git
-configuration. User `runner`
+which .NET and other runtimes installed later expect), `procps` (`ps`, `pgrep`,
+`pkill`, used by Claude Code and by scripts managing background processes),
+and the doc's system git configuration. User `runner`
 (uid 1000, the chart's default `fsGroup`) owns its home, `/home/runner`, and
 two user-space package managers are on `PATH` so sessions can install tooling
 without root:

@@ -41,7 +41,7 @@ RUN case "${TARGETARCH}" in amd64) claude_arch=linux-x64; mise_arch=linux-x64; u
 
 FROM debian:trixie-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client jq unzip xz-utils bzip2 libicu76 \
+ && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client jq unzip xz-utils bzip2 libicu76 procps \
  && rm -rf /var/lib/apt/lists/* \
  && git config --system user.name "Claude" \
  && git config --system user.email "noreply@anthropic.com" \
