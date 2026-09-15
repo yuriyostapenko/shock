@@ -196,6 +196,7 @@ network:
     - objects.githubusercontent.com
     - release-assets.githubusercontent.com
     - github-releases.githubusercontent.com
+    - pkg-containers.githubusercontent.com # ghcr.io layer blobs
     # mise: version and JVM metadata
     - mise.jdx.dev
     - mise-versions.jdx.dev
@@ -215,8 +216,14 @@ network:
     # .NET SDKs and NuGet
     - builds.dotnet.microsoft.com
     - dotnet.microsoft.com
+    - download.visualstudio.microsoft.com
     - dot.net
     - api.nuget.org
+    # Container registry hosts behind the fronts Anthropic's list names
+    # (anthropics/claude-code#71629): layer blobs come from a different host.
+    - production.cloudfront.docker.com # Docker Hub layers
+    - registry.k8s.io
+    - "*.cloudfront.net" # ECR Public layers; admits every CloudFront distribution
   dns:
     namespace: kube-system
     podLabels:
