@@ -113,7 +113,8 @@
             "releaseIdleSessionMin": {"type": "integer", "minimum": 0, "maximum": 10080},
             "killSessionAfterMin": {"type": "integer", "minimum": 0, "maximum": 10080},
             "exitIfUnusedMin": {"type": "integer", "minimum": 0, "maximum": 10080},
-            "pushOutcomeOnRelease": {"type": "boolean"}
+            "pushOutcomeOnRelease": {"type": "boolean"},
+            "useAnthropicGitProxy": {"type": "boolean"}
           }
         },
         "extraArgs": {"$ref": "#/$defs/stringList"},

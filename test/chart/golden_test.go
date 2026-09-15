@@ -126,7 +126,7 @@ func TestRenderedTemplateSatisfiesContract(t *testing.T) {
 	}
 	args := strings.Join(sb.Spec.PodTemplate.Spec.Containers[0].Args, " ")
 	for _, want := range []string{"--capacity 1", "--base-dir /workspace", "--environment-secret-file /var/run/claude/work-order/work-order",
-		"--release-idle-session-min 30", "--kill-session-after-min 480", "--exit-if-unused-min 10", "--push-outcome-on-release", "--health-port 8080", "--lock-to-account user_x"} {
+		"--release-idle-session-min 30", "--kill-session-after-min 480", "--exit-if-unused-min 10", "--push-outcome-on-release", "--use-anthropic-git-proxy", "--health-port 8080", "--lock-to-account user_x"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("runner args missing %q: %s", want, args)
 		}

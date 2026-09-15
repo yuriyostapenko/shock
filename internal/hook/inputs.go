@@ -14,7 +14,9 @@ import (
 // (code.claude.com/docs/en/self-hosted-environments-configuration) on
 // 2026-09-14; CLAUDE_RUNNER_ATTEMPT is documented as "how many spawn requests
 // this session has had" and CLAUDE_RUNNER_ORDER_ID as the per-request
-// idempotency key.
+// idempotency key. Observed live on 2026-09-15: the first spawn request of a
+// session carries CLAUDE_RUNNER_ATTEMPT=0, so the counter is zero-based and a
+// pre-warming request is recognised by its empty session id alone.
 const (
 	EnvWorkOrderFile = "CLAUDE_RUNNER_WORK_ORDER_FILE"
 	EnvOrderID       = "CLAUDE_RUNNER_ORDER_ID"
@@ -140,9 +142,6 @@ func RequestFromEnv(getenv func(string) string, readFile func(string) ([]byte, e
 		return r, errors.New(EnvAttempt + " must be a non-negative integer")
 	}
 	r.Attempt = n
-	if r.PreWarm() != (n == 0) {
-		return r, fmt.Errorf("%s=%d is inconsistent with %s being %s", EnvAttempt, n, EnvSessionID, map[bool]string{true: "empty", false: "set"}[r.PreWarm()])
-	}
 	if strings.ContainsAny(r.SessionID, " \t\n") {
 		return r, errors.New(EnvSessionID + " contains whitespace")
 	}

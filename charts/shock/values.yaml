@@ -87,6 +87,11 @@ runner:
     killSessionAfterMin: 480
     exitIfUnusedMin: 10
     pushOutcomeOnRelease: true
+    # Route git through api.anthropic.com with the session creator's claude.ai
+    # GitHub connection, so the runner image carries no git credentials.
+    # Requires capacity 1 and git >= 2.32, both true here. Set false when you
+    # provide git credentials yourself (wrapper, checkout hook, image config).
+    useAnthropicGitProxy: true
   # Appended to the rendered `claude self-hosted-runner` args, e.g.
   # ["--exec-path", "/opt/claude/wrapper.sh"] for the credentials wrapper.
   extraArgs: []

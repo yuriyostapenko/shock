@@ -813,7 +813,15 @@ environment run still has to confirm hook execution end to end.
    requests and redelivery as the same request; it does not state in so many words that the
    attempt is stable on redelivery. The implementation therefore treats **order id equality as
    redelivery regardless of attempt** and uses the attempt only to order distinct orders, so a
-   redelivery carrying a surprising attempt cannot roll state back or be rejected.
+   redelivery carrying a surprising attempt cannot roll state back or be rejected. Observed live
+   (2026-09-15, kind + real orchestrator): a session's **first** spawn request carries
+   `CLAUDE_RUNNER_ATTEMPT=0`; the counter is zero-based, and only the empty session id marks a
+   pre-warming request. The orchestrator executed the symlinked `/hooks/spawn-runner` (no shell in
+   the image) and surfaced the hook's stderr as the nack reason. The default runner image holds no git
+   credentials, so the chart sets `--use-anthropic-git-proxy` by default (`runner.flags.useAnthropicGitProxy`);
+   in the live run the server withheld managed git for the session and the runner cloned through its
+   deprecated clone-URL proxy fallback, which succeeded. After each runner exit the control plane re-offered
+   with a fresh order id and attempt+1, and every re-offer bounced the Sandbox through Suspended cleanly.
 2. **Egress list** (deploy doc, "Network requirements"): `api.anthropic.com:443` (control plane,
    inference, JWKS, git proxy), the git host (443 or 22), and conditionally `downloads.claude.ai`,
    `storage.googleapis.com`, `code.claude.com`, `claude.com`, `*.frame.claudeusercontent.com`,

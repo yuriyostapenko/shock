@@ -443,8 +443,8 @@ func TestRequestFromEnv(t *testing.T) {
 		t.Fatalf("parse: %v %+v", err, r)
 	}
 	env[EnvAttempt] = "0"
-	if _, err := RequestFromEnv(func(k string) string { return env[k] }, read); err == nil {
-		t.Error("attempt 0 with a session must be rejected")
+	if r, err := RequestFromEnv(func(k string) string { return env[k] }, read); err != nil || r.Attempt != 0 || r.PreWarm() {
+		t.Errorf("a session's first spawn request carries attempt 0: %v %+v", err, r)
 	}
 	env[EnvSessionID] = ""
 	if r, err := RequestFromEnv(func(k string) string { return env[k] }, read); err != nil || !r.PreWarm() {

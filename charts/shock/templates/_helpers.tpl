@@ -164,6 +164,9 @@ spec:
         {{- if $r.flags.pushOutcomeOnRelease }}
         - --push-outcome-on-release
         {{- end }}
+        {{- if $r.flags.useAnthropicGitProxy }}
+        - --use-anthropic-git-proxy
+        {{- end }}
         - --health-port
         - {{ $r.healthPort | quote }}
         {{- range $r.extraArgs }}
