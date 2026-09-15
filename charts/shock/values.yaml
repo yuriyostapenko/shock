@@ -155,7 +155,6 @@ runner:
       `mise use -g <tool>` for most CLIs, `uv python install 3.14`,
       `uv tool install <package>` or `uvx <package>` for Python tools. If a
       system library is missing, say so rather than trying to install it.
-    - There is no Docker daemon in this environment.
     - Git reaches GitHub through Anthropic's proxy with the session creator's
       credentials. Push work to `claude/*` branches.
     - `/etc/claude-code` is read-only. Everything under `~` is yours to change.
