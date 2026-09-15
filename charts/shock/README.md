@@ -82,6 +82,10 @@ without root:
   (`mise use -g node@22`, `mise use -g go@latest`, `mise use -g jq`).
 - `uv` and `uvx` install Python versions and Python tools into `~/.local`.
 
+The image entrypoint links Claude Code's per-user temp directory,
+`/tmp/claude-<uid>`, to `~/.cache/claude-tmp` before starting the CLI, so the
+scratchpad and task state persist across sleep like the rest of the home.
+
 The chart mounts the session's PVC at the runner user's home
 (`runner.storage.mountPath`, default `/home/runner`) and checks repositories out
 below it (`runner.baseDir`, default `/home/runner/workspace`). Everything a

@@ -54,11 +54,12 @@ COPY --from=fetch --chmod=0755 /out/claude /usr/local/bin/claude
 COPY --from=fetch --chmod=0755 /out/mise-bin /usr/local/bin/mise
 COPY --from=fetch --chmod=0755 /out/uv-bin /usr/local/bin/uv
 COPY --from=fetch --chmod=0755 /out/uvx-bin /usr/local/bin/uvx
+COPY --chmod=0755 images/runner/entrypoint.sh /usr/local/bin/runner-entrypoint
 USER 1000
 WORKDIR /home/runner
 ENV HOME=/home/runner \
     LANG=C.UTF-8 \
     PATH=/home/runner/.local/share/mise/shims:/home/runner/.local/bin:/usr/local/bin:/usr/bin:/bin \
     DISABLE_AUTOUPDATER=1
-ENTRYPOINT ["claude"]
+ENTRYPOINT ["runner-entrypoint"]
 CMD ["self-hosted-runner", "--help"]
