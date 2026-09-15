@@ -1,0 +1,204 @@
+name: release
+
+# One tag, three artifacts: the image ghcr.io/<owner>/shock:X.Y.Z, the chart
+# oci://ghcr.io/<owner>/charts/shock:X.Y.Z with that image's digest pinned in
+# its default values, and a GitHub Release carrying the chart archive.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.27"
+  HELM_VERSION: v4.3.0
+
+jobs:
+  verify:
+    name: verify tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      owner: ${{ steps.v.outputs.owner }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - id: v
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "tag $tag is not vX.Y.Z or vX.Y.Z-prerelease" >&2; exit 1
+          fi
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "tag $tag does not point at a commit on main" >&2; exit 1
+          fi
+          version="${tag#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$version" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+          echo "owner=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+  image:
+    name: image ${{ needs.verify.outputs.version }}
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      ref: ghcr.io/${{ needs.verify.outputs.owner }}/shock
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: docker/setup-qemu-action@v4.3.0
+      - uses: docker/setup-buildx-action@v4.3.0
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v6.2.0
+        with:
+          images: ghcr.io/${{ needs.verify.outputs.owner }}/shock
+          tags: |
+            type=raw,value=${{ needs.verify.outputs.version }}
+            type=sha
+      - id: build
+        uses: docker/build-push-action@v7.3.0
+        with:
+          context: .
+          file: images/orchestrator/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          build-args: |
+            VERSION=${{ needs.verify.outputs.version }}
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: sign image (keyless)
+        run: cosign sign --yes "ghcr.io/${{ needs.verify.outputs.owner }}/shock@${{ steps.build.outputs.digest }}"
+      # GitHub build provenance is offered for public repositories on every
+      # current plan and for private ones on Enterprise Cloud only.
+      - uses: actions/attest-build-provenance@v4.2.2
+        if: github.event.repository.private == false
+        with:
+          subject-name: ghcr.io/${{ needs.verify.outputs.owner }}/shock
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  chart:
+    name: chart ${{ needs.verify.outputs.version }}
+    needs: [verify, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      ref: oci://ghcr.io/${{ needs.verify.outputs.owner }}/charts/shock
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: pin the released image into the chart defaults
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          OWNER: ${{ needs.verify.outputs.owner }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+        run: |
+          yq -i '.orchestrator.image.repository = "ghcr.io/" + strenv(OWNER) + "/shock" | .orchestrator.image.digest = strenv(DIGEST)' charts/shock/values.yaml
+          yq '.orchestrator.image' charts/shock/values.yaml
+      - name: lint and package
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          helm lint charts/shock -f test/values/minimal.yaml
+          helm package charts/shock --version "$VERSION" --app-version "$VERSION" --destination dist
+          ls -l dist
+      - name: push chart to GHCR
+        id: push
+        env:
+          OWNER: ${{ needs.verify.outputs.owner }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push "dist/shock-${VERSION}.tgz" "oci://ghcr.io/${OWNER}/charts" 2>&1 | tee push.log
+          digest=$(sed -n 's/^Digest: //p' push.log)
+          test -n "$digest"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: sign chart (keyless)
+        run: cosign sign --yes "ghcr.io/${{ needs.verify.outputs.owner }}/charts/shock@${{ steps.push.outputs.digest }}"
+      - uses: actions/attest-build-provenance@v4.2.2
+        if: github.event.repository.private == false
+        with:
+          subject-name: ghcr.io/${{ needs.verify.outputs.owner }}/charts/shock
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: chart
+          path: dist/shock-${{ needs.verify.outputs.version }}.tgz
+          if-no-files-found: error
+
+  release:
+    name: github release ${{ needs.verify.outputs.version }}
+    needs: [verify, image, chart]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: chart
+          path: dist
+      - name: create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+          IMAGE_REF: ${{ needs.image.outputs.ref }}
+          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+          CHART_REF: ${{ needs.chart.outputs.ref }}
+          CHART_DIGEST: ${{ needs.chart.outputs.digest }}
+        run: |
+          cat > notes.md <<NOTES
+          ## Artifacts
+
+          | Artifact | Reference | Digest |
+          | --- | --- | --- |
+          | Image | \`${IMAGE_REF}:${VERSION}\` | \`${IMAGE_DIGEST}\` |
+          | Chart | \`${CHART_REF}:${VERSION}\` | \`${CHART_DIGEST}\` |
+
+          Install:
+
+          \`\`\`sh
+          helm install shock ${CHART_REF} --version ${VERSION} -n claude-runners \\
+            --set environment.existingSecret=<secret> \\
+            --set runner.image.repository=<registry>/claude-runner --set-string runner.image.tag=<tag>
+          \`\`\`
+
+          Verify (keyless signatures and build provenance):
+
+          \`\`\`sh
+          cosign verify ${IMAGE_REF}@${IMAGE_DIGEST} \\
+            --certificate-identity-regexp '^https://github.com/${GITHUB_REPOSITORY}/' \\
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          gh attestation verify oci://${IMAGE_REF}@${IMAGE_DIGEST} --repo ${GITHUB_REPOSITORY}
+          \`\`\`
+          NOTES
+          flags=(--verify-tag --generate-notes --notes-file notes.md)
+          if [[ "$PRERELEASE" == "true" ]]; then flags+=(--prerelease); fi
+          gh release create "v${VERSION}" "dist/shock-${VERSION}.tgz" --title "v${VERSION}" "${flags[@]}"

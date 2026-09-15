@@ -37,11 +37,19 @@ helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | replace 
 {{- end -}}
 {{- end -}}
 
+{{/*
+shock.image renders repository:tag[@digest]. Pass (dict "image" <image values>
+"name" <values key> "defaultTag" <fallback tag>); an empty tag falls back to
+defaultTag, and an empty repository or resolved tag fails the render.
+*/}}
 {{- define "shock.image" -}}
-{{- if or (empty .image.repository) (empty .image.tag) -}}
+{{- $tag := default .defaultTag .image.tag -}}
+{{- if or (empty .image.repository) (empty $tag) -}}
 {{- fail (printf "%s.image.repository and %s.image.tag are required" .name .name) -}}
 {{- end -}}
-{{- printf "%s:%s" .image.repository .image.tag -}}
+{{- $ref := printf "%s:%s" .image.repository $tag -}}
+{{- with .image.digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
+{{- $ref -}}
 {{- end -}}
 
 {{/* Chart-level validation, evaluated once from the orchestrator Deployment. */}}
@@ -125,7 +133,7 @@ spec:
   {{- end }}
   containers:
     - name: runner
-      image: {{ include "shock.image" (dict "image" $r.image "name" "runner") | quote }}
+      image: {{ include "shock.image" (dict "image" $r.image "name" "runner" "defaultTag" "") | quote }}
       imagePullPolicy: {{ $r.image.pullPolicy }}
       {{- if $r.command }}
       command:

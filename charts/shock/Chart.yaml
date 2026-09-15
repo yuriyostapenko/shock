@@ -6,8 +6,10 @@ description: >-
   suspension. Requires the upstream agent-sandbox controller (not installed
   by this chart).
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+# version and appVersion are set from the git tag by the release workflow
+# (helm package --version X.Y.Z --app-version X.Y.Z).
+version: 0.0.0-dev
+appVersion: 0.0.0-dev
 # Derived, not invented: agent-sandbox v1.0.2 pins k8s.io/* v0.37; two minors
 # below is 1.35 (upstream's supported skew). Re-derive on every agent-sandbox bump.
 kubeVersion: ">=1.35.0-0"

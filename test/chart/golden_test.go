@@ -312,3 +312,55 @@ func TestEveryObjectCarriesCommonLabelsAndSelectors(t *testing.T) {
 		}
 	}
 }
+
+func TestOrchestratorImageFollowsChartVersion(t *testing.T) {
+	// Defaults: repository from values, tag from appVersion, no digest.
+	objs, _, err := helmTemplate(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image := func(objs []unstructured.Unstructured, name string) string {
+		dep := find(objs, "Deployment", release+"-shock-"+name)
+		if dep == nil {
+			t.Fatalf("deployment %s not rendered", name)
+		}
+		containers, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
+		img, _ := containers[0].(map[string]any)["image"].(string)
+		return img
+	}
+	if got := image(objs, "orchestrator"); got != "ghcr.io/yuriyostapenko/shock:0.0.0-dev" {
+		t.Errorf("default orchestrator image = %q", got)
+	}
+	if got := image(objs, "session-controller"); got != "ghcr.io/yuriyostapenko/shock:0.0.0-dev" {
+		t.Errorf("default session-controller image = %q", got)
+	}
+	// A released chart: version and appVersion injected, digest pinned.
+	digest := "sha256:" + strings.Repeat("ab", 32)
+	objs, _, err = helmTemplate(t, "--set", "orchestrator.image.digest="+digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := image(objs, "orchestrator"); got != "ghcr.io/yuriyostapenko/shock:0.0.0-dev@"+digest {
+		t.Errorf("pinned orchestrator image = %q", got)
+	}
+	// An explicit tag still wins over appVersion.
+	objs, _, err = helmTemplate(t, "--set-string", "orchestrator.image.tag=custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := image(objs, "orchestrator"); got != "ghcr.io/yuriyostapenko/shock:custom" {
+		t.Errorf("explicit tag image = %q", got)
+	}
+	if got := find(objs, "Deployment", release+"-shock-orchestrator").GetLabels()[naming.LabelVersion]; got != "custom" {
+		t.Errorf("version label = %q", got)
+	}
+	// The runner image has no default and must be supplied.
+	_, stderr, err := helmTemplate(t, "--set", "runner.image.repository=")
+	if err == nil || !strings.Contains(stderr, "runner.image.repository") {
+		t.Fatalf("runner image must be required: %v %s", err, stderr)
+	}
+	// A malformed digest is rejected by the schema.
+	if _, _, err := helmTemplate(t, "--set", "orchestrator.image.digest=abc"); err == nil {
+		t.Fatal("malformed digest must fail the schema")
+	}
+}

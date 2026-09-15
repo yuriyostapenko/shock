@@ -8,8 +8,9 @@ survives suspension and is reused when the session resumes. Runner compute
 scales to zero between messages.
 
 **Status: first implementation.** The chart, the `shock` binary (hook and
-session controller) and the image build are in this repository. No published
-container image or chart release exists yet; build from source. The design has
+session controller) and the image build are in this repository. Releases are
+cut from `vX.Y.Z` tags and publish the image, the chart as an OCI artifact and a
+GitHub Release together; see [CONTRIBUTING.md](CONTRIBUTING.md#releasing). The design has
 been validated against the upstream agent-sandbox controller in kind and
 against a real API server in envtest, but not yet against a live Claude
 self-hosted environment (see [Validation](#validation)).
@@ -72,6 +73,11 @@ make envtest          # downloads kube-apiserver/etcd for ENVTEST_K8S, runs test
 make e2e-kind         # creates kind cluster, installs agent-sandbox, runs test/e2e
 make image IMAGE=ghcr.io/you/shock:dev
 ```
+
+Releases: push a `vX.Y.Z` tag on a `main` commit; `.github/workflows/release.yaml`
+publishes `ghcr.io/yuriyostapenko/shock:X.Y.Z`, the chart at
+`oci://ghcr.io/yuriyostapenko/charts/shock:X.Y.Z` with that image pinned by
+digest, and the GitHub Release.
 
 ## Validation
 

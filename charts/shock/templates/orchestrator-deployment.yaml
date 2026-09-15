@@ -61,7 +61,7 @@ spec:
       {{- end }}
       containers:
         - name: orchestrator
-          image: {{ include "shock.image" (dict "image" $o.image "name" "orchestrator") | quote }}
+          image: {{ include "shock.image" (dict "image" $o.image "name" "orchestrator" "defaultTag" .Chart.AppVersion) | quote }}
           imagePullPolicy: {{ $o.image.pullPolicy }}
           command: ["claude"]
           args:

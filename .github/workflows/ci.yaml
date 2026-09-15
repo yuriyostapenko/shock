@@ -49,7 +49,7 @@ jobs:
       - name: ct lint
         run: |
           docker run --rm -v "$PWD:/work" -w /work quay.io/helmpack/chart-testing:${{ env.CT_VERSION }} \
-            ct lint --charts charts/shock --remote origin --target-branch main \
+            ct lint --charts charts/shock --check-version-increment=false \
               --validate-maintainers=false --helm-lint-extra-args "-f test/values/minimal.yaml"
       - name: helm template in every network mode, with no CRDs present
         run: |

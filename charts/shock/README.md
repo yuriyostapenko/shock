@@ -26,16 +26,33 @@ survives sleep. Runner compute scales to zero between messages.
 
 ## Install
 
+Releases publish the chart as an OCI artifact at
+`oci://ghcr.io/yuriyostapenko/charts/shock` and the image at
+`ghcr.io/yuriyostapenko/shock`, both tagged `X.Y.Z` from the git tag `vX.Y.Z`.
+The released chart's `appVersion` is that same `X.Y.Z` and its default values
+pin the released image by digest, so the orchestrator image needs no values.
+
 ```sh
 kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.2/sandbox.yaml
 kubectl create namespace claude-runners
 (umask 077 && cat > ./environment-secret)   # paste the environment key, Enter, Ctrl-D
 kubectl -n claude-runners create secret generic claude-environment --from-file=environment-secret=./environment-secret && rm ./environment-secret
 
-helm install shock ./charts/shock -n claude-runners \
+helm install shock oci://ghcr.io/yuriyostapenko/charts/shock --version X.Y.Z -n claude-runners \
   --set environment.existingSecret=claude-environment \
-  --set orchestrator.image.repository=ghcr.io/yuriyostapenko/shock --set orchestrator.image.tag=<tag> \
   --set runner.image.repository=<registry>/claude-runner --set-string runner.image.tag=<tag>
+```
+
+From a checkout, `Chart.yaml` carries `0.0.0-dev`; pass `orchestrator.image.tag`
+(and optionally `orchestrator.image.digest`) yourself.
+
+Both artifacts are signed keyless with cosign and carry GitHub build provenance:
+
+```sh
+cosign verify ghcr.io/yuriyostapenko/shock:X.Y.Z \
+  --certificate-identity-regexp '^https://github.com/yuriyostapenko/shock/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+gh attestation verify oci://ghcr.io/yuriyostapenko/charts/shock:X.Y.Z --repo yuriyostapenko/shock
 ```
 
 `helm template` and `helm install` both succeed with the Sandbox CRD absent, so
@@ -118,6 +135,7 @@ types and enums. The load-bearing ones:
 | Key | Default | Notes |
 | --- | --- | --- |
 | `environment.existingSecret` | `""` | Secret with key `environment-secret`. Required unless `secretValue` is set. |
+| `orchestrator.image.tag` | `""` | Falls back to the chart's `appVersion`. `orchestrator.image.digest` pins the image; the release sets it. |
 | `orchestrator.expectedSpawnSeconds` | `180` | Server-side spawn lease, shared by all replicas. Must exceed `hookTimeout + 5` (rendering fails otherwise). Includes the initial suspension round-trip. |
 | `orchestrator.hookTimeout` | `30` | The hook keeps its API work within 80% of this. |
 | `orchestrator.minIdle` | `0` | Pre-warm off. Standby runners are unbound Jobs without a PVC: they lower cold-start latency for *new* sessions only and never get a per-session disk. Enables `batch/jobs` create for the hook. |

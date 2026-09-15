@@ -49,7 +49,7 @@ spec:
       {{- end }}
       containers:
         - name: session-controller
-          image: {{ include "shock.image" (dict "image" .Values.orchestrator.image "name" "orchestrator") | quote }}
+          image: {{ include "shock.image" (dict "image" .Values.orchestrator.image "name" "orchestrator" "defaultTag" .Chart.AppVersion) | quote }}
           imagePullPolicy: {{ .Values.orchestrator.image.pullPolicy }}
           command: ["shock", "session-controller"]
           env:

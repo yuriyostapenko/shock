@@ -13,8 +13,9 @@ environment:
 
 orchestrator:
   image:
-    repository: ""   # required: the SHOCK image (claude + shock binary + /hooks shim)
-    tag: ""          # required
+    repository: ghcr.io/yuriyostapenko/shock
+    tag: ""          # defaults to the chart's appVersion, which the release sets to the same X.Y.Z
+    digest: ""       # sha256:... pinned by the release workflow into the published chart
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   replicas: 2

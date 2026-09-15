@@ -40,6 +40,29 @@ them together and re-derive `kubeVersion`.
 from the upstream release manifest, builds the controller image and runs
 `test/e2e`. `make e2e-teardown` removes the cluster.
 
+## Releasing
+
+A release is a SemVer tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) on a commit that is on
+`main`. Nothing version-shaped is committed: `Chart.yaml` stays at `0.0.0-dev`
+and the release workflow injects the version. Pushing the tag runs
+`.github/workflows/release.yaml`, which in one run:
+
+1. builds and pushes `ghcr.io/<owner>/shock:X.Y.Z` (multi-arch, SBOM and
+   BuildKit provenance attached), signs it keyless with cosign and, when the
+   repository is public, records GitHub build provenance;
+2. pins that image's digest into the chart defaults, packages the chart with
+   `--version X.Y.Z --app-version X.Y.Z`, pushes it to
+   `oci://ghcr.io/<owner>/charts/shock:X.Y.Z`, signs and attests it;
+3. creates the GitHub Release with generated notes, both digests and the chart
+   archive attached; a version with a pre-release suffix is marked pre-release.
+
+To release: `git tag -a vX.Y.Z -m "vX.Y.Z" <commit-on-main> && git push origin vX.Y.Z`.
+The workflow refuses a tag whose commit is not on `main`. Add a repository
+ruleset for `refs/tags/v*` (creation, update, deletion restricted to admins)
+once the repository is public or on a plan that offers rulesets for private
+repositories. Pull requests build the image without publishing; pushes to
+`main` publish nothing.
+
 ## Pull requests
 
 Keep PRs focused. Explain the problem, resulting behavior and validation, and
