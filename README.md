@@ -105,10 +105,15 @@ Ran on 2026-09-14 against agent-sandbox v1.0.2 and Kubernetes 1.35 (kind
   untouched. The hook ran impersonating the orchestrator ServiceAccount, so its
   Role was exercised.
 
-Not run: a manual session against a live Claude self-hosted environment with
-the real orchestrator process and a real runner image. The hook's environment
-variable contract and exit codes were verified against Anthropic's
-documentation, not against a live orchestrator.
+Live run on 2026-09-15 in kind against a real Claude self-hosted environment,
+with the real orchestrator process in the distroless image and the default
+runner image: the orchestrator executed the symlinked hook, the Sandbox was
+created suspended and woken, the runner registered with its work order, locked
+to the account, checked out the repository and ran the session; the idle
+release pushed the outcome branch, the Sandbox slept, and a later message
+resumed it onto the same PVC with a fetch and hard reset of the existing clone.
+The run also corrected two assumptions: a session's first spawn request carries
+attempt 0, and the default runner image needs the Anthropic git proxy to clone.
 
 ## Contributing
 

@@ -822,6 +822,10 @@ environment run still has to confirm hook execution end to end.
    in the live run the server withheld managed git for the session and the runner cloned through its
    deprecated clone-URL proxy fallback, which succeeded. After each runner exit the control plane re-offered
    with a fresh order id and attempt+1, and every re-offer bounced the Sandbox through Suspended cleanly.
+   Idle release (`--release-idle-session-min 10`) pushed the outcome branch, the runner exited 0, Sleep
+   stamped `last-suspended-at`, and a later message woke the Sandbox onto the same PVC: `FETCH_HEAD` was
+   written five seconds after Pod start (fetch, not clone), the previous run's local branch and
+   `_sessions` state were present. Four immutable work-order Secrets remained, one per accepted order.
 2. **Egress list** (deploy doc, "Network requirements"): `api.anthropic.com:443` (control plane,
    inference, JWKS, git proxy), the git host (443 or 22), and conditionally `downloads.claude.ai`,
    `storage.googleapis.com`, `code.claude.com`, `claude.com`, `*.frame.claudeusercontent.com`,
