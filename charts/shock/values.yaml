@@ -172,8 +172,7 @@ network:
   # without FQDN filtering (documented gap). none: render nothing.
   mode: cilium
   # host or host:port (443 default). One list for every runner egress
-  # destination: Anthropic, git hosts, package registries or mirrors. Exact
-  # names are preferred: enforceSNI applies to them only.
+  # destination: Anthropic, git hosts, package registries or mirrors.
   # Anthropic's list: https://code.claude.com/docs/en/self-hosted-environments-deploy#network-requirements
   # The rest is what the default runner image's tooling (mise, uv, npm, dotnet)
   # fetches from; trim it for a different image or a mirror.
@@ -218,10 +217,10 @@ network:
     podLabels:
       k8s-app: kube-dns
   metadataCIDR: 169.254.169.254/32
-  # cilium mode: require the TLS handshake to name the allowed host (SNI) on
-  # every exact allowedFQDNs entry. FQDN policy admits resolved addresses, and
-  # CDN addresses are shared between customers; SNI enforcement keeps the allow
-  # list a list of names. Wildcard entries are matched by address only.
+  # cilium mode: require the TLS handshake to name a host matching the
+  # allowedFQDNs entry (SNI). FQDN policy admits resolved addresses, and CDN
+  # addresses are shared between customers; SNI enforcement keeps the allow
+  # list a list of names. Wildcard entries are enforced as patterns.
   enforceSNI: true
 
 monitoring:

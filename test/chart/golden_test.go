@@ -274,14 +274,14 @@ func TestCiliumRunnerPolicyEnforcesSNI(t *testing.T) {
 		case sel["matchName"] == "api.anthropic.com":
 			exact = len(names) == 1 && names[0] == "api.anthropic.com"
 		case sel["matchPattern"] == "*.githubusercontent.com":
-			wildcard = len(names) == 0
+			wildcard = len(names) == 1 && names[0] == "*.githubusercontent.com"
 		}
 	}
 	if !exact {
 		t.Error("exact allowedFQDNs entry must carry serverNames with that host")
 	}
 	if !wildcard {
-		t.Error("wildcard allowedFQDNs entry must not carry serverNames")
+		t.Error("wildcard allowedFQDNs entry must carry serverNames with the same pattern")
 	}
 	objs, _, err = helmTemplate(t, "--set", "network.enforceSNI=false")
 	if err != nil {
