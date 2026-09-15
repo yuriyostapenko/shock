@@ -88,8 +88,8 @@ const (
 	// Suspended Sandbox before Wake installs a real order. It is never created.
 	PlaceholderSecretName = "shock-placeholder-never-materialized"
 
-	sandboxPrefix    = "cs-"
-	secretPrefix     = "wo-"
+	sandboxPrefix    = "cs-" // Claude session
+	secretPrefix     = "wo-" // work order
 	maxSanitizedLen  = 46
 	hashSuffixLength = 8
 )
