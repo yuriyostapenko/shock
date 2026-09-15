@@ -93,35 +93,10 @@ digest, and the GitHub Release.
 
 ## Validation
 
-Ran on 2026-09-14 against agent-sandbox v1.0.2 and Kubernetes 1.35 (kind
-`kindest/node:v1.35.0`, envtest 1.35.0):
-
-- `go vet`, `golangci-lint`, unit tests for naming, hook and session controller.
-- Chart lint, render in every network mode with the CRD absent, and the golden
-  test that strict-decodes the rendered template into the typed Sandbox.
-- envtest: stale hook, Wake, Sleep and acknowledgement patches conflict rather
-  than overwrite; GC delete preconditions lose to a concurrent spawn and win
-  the reverse race with a retryable hook exit; immutable Secrets; recreated
-  Sandboxes derive new Secret names; interleaved concurrent hooks.
-- kind e2e (`test/e2e`): agent-sandbox conformance items 1 to 7 including the
-  pinned reason strings; fresh session, sleep within budget, redelivery no-op,
-  resume on the same PVC with the marker file present, crash then clean wake,
-  no second pod during a bounce against a live session, two sessions for one
-  account, anchor removal exits 2 before any write, GC cascade with zero
-  orphaned Secrets, GC sparing a woken session, hostile `runner.podTemplate`
-  forced fields on the real Pod, and `helm upgrade` leaving sleeping sessions
-  untouched. The hook ran impersonating the orchestrator ServiceAccount, so its
-  Role was exercised.
-
-Live run on 2026-09-15 in kind against a real Claude self-hosted environment,
-with the real orchestrator process in the distroless image and the default
-runner image: the orchestrator executed the symlinked hook, the Sandbox was
-created suspended and woken, the runner registered with its work order, locked
-to the account, checked out the repository and ran the session; the idle
-release pushed the outcome branch, the Sandbox slept, and a later message
-resumed it onto the same PVC with a fetch and hard reset of the existing clone.
-The run also corrected two assumptions: a session's first spawn request carries
-attempt 0, and the default runner image needs the Anthropic git proxy to clone.
+Unit, chart golden, envtest and kind e2e suites run in CI on Kubernetes 1.35
+and 1.37 against agent-sandbox v1.0.2. The full lifecycle was also exercised
+live against a Claude self-hosted environment; the spec's section 13 holds the
+verification record.
 
 ## Contributing
 
