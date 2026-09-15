@@ -236,6 +236,7 @@ sessionController:
   resyncSeconds: 300                       # informer resync backstop; reconcile is event-driven
   gc: {enabled: true, maxIdle: 336h}      # delete Sandbox+PVC after 14 d asleep
   zombie: {enabled: true, alertAfter: 5m}  # alarm-only threshold; the session controller never deletes pods
+  maxActiveRunners: 0                      # planned (section 7, "Active-runner cap"): 0 = unlimited
 runner:
   image: {repository: "", tag: ""}   # required; contract in README
   baseDir: /workspace
@@ -554,6 +555,45 @@ older than `gc.maxIdle`, no pending-spawn -> GC must not fire;
 (c) **old pod does not acknowledge a new order** — an owned live Pod exists and may be
 `Ready=True`, pending-spawn names the new order, and applied-spawn names the prior order ->
 pending-spawn must remain.
+
+### Active-runner cap (planned, not implemented)
+
+Requirement for a later iteration: the session controller must not wake more than
+`sessionController.maxActiveRunners` sessions at a time (`0` = unlimited, the current
+behavior). The cap bounds cluster spend and node pressure; the orchestrator's own scaling
+knows nothing about cluster capacity.
+
+Design constraints, so the later implementation stays inside this document's invariants:
+
+- The cap is an **admission gate on Wake only**. The hook keeps declaring intent unchanged
+  (it cannot count, and it must stay fast); Sleep, GC, Spawn observation and Zombie are
+  unaffected. A denied Wake leaves the Sandbox `Suspended` with its pending order intact and
+  requeues; it never rewrites intent.
+- **Active** means a Sandbox of this release with `spec.operatingMode: Running`, whatever the
+  Pod's phase: a finished Pod holds its slot until Sleep confirms `Suspended=True`, because the
+  slot is the disk-plus-Pod pair, not the process. Counting comes from the informer cache.
+- **Order of admission is FIFO by `pending-spawn-at`** across waiting Sandboxes, so a session
+  that has waited longest wakes first; a bounce (section 2) releases its slot while suspended and
+  re-enters the queue like any other waiting session.
+- **No overshoot from concurrency**: Wake admissions are serialized inside the single controller
+  replica (one reconcile worker, or an admission mutex around count-and-patch). The brief
+  overlap during a Recreate rollout can overshoot by at most one Wake per overlapping replica;
+  the cap is therefore a soft bound and documented as such.
+- **Interaction with the spawn lease**: a session held back longer than
+  `orchestrator.expectedSpawnSeconds` is re-offered by the control plane with a fresh order id
+  and higher attempt; the hook accepts it as a newer order (section 6), which only rotates the
+  pending Secret. Waiting sessions therefore accumulate re-offers but never lose their place.
+  The monitoring must tell "waiting for capacity" apart from "spawn stuck" (section 11): export
+  `shock_sandboxes_waiting_for_capacity` and a per-Sandbox reason label on the pending-spawn
+  age series, and exclude capacity-held Sandboxes from the `ShockSpawnStuck` alert.
+- Per-account fairness or per-account caps are out of scope for the first cut; record them here
+  if they become necessary.
+
+Acceptance to add to section 12 when implemented: with `maxActiveRunners: 1` and two sessions
+spawned back to back, the second wakes only after the first sleeps; with three sessions the
+admission order matches `pending-spawn-at`; the count of `Running` Sandboxes never exceeds the
+cap across a bounce; a denied Wake leaves annotations and the Secret untouched; `0` restores
+today's behavior byte-for-byte in the e2e suite.
 
 ## 8. Runner container (inside the Sandbox podTemplate)
 
