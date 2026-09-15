@@ -79,9 +79,10 @@ without root:
   (`mise use -g node@22`, `mise use -g go@latest`, `mise use -g jq`).
 - `uv` and `uvx` install Python versions and Python tools into `~/.local`.
 
-`~/.local`, `~/.cache` and `~/.config` are symlinks into `/workspace`, the
-session's PVC, so runtimes and tools a session installs survive sleep and are
-already there on resume. The image entrypoint creates those directories, then
+`~/.local`, `~/.cache`, `~/.config` and `~/.npm` are symlinks into `/workspace`,
+the session's PVC, so runtimes, tools and package caches a session installs
+(`mise` and `uv` keep theirs under `~/.local` and `~/.cache`) survive sleep and
+are already there on resume. The image entrypoint creates those directories, then
 runs `claude`; the runner's hard reset on resume touches only the repository
 directory.
 
