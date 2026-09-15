@@ -207,3 +207,25 @@ network:
     # that wildcard would admit every CloudFront distribution, so it is not here.
     - production.cloudfront.docker.com
     - registry.k8s.io
+
+  dns:
+    namespace: kube-system
+    podLabels:
+      k8s-app: kube-dns
+  metadataCIDR: 169.254.169.254/32
+  # cilium mode: require the TLS handshake to name a host matching the
+  # allowedFQDNs entry (SNI). FQDN policy admits resolved addresses, and CDN
+  # addresses are shared between customers; SNI enforcement keeps the allow
+  # list a list of names. Wildcard entries are enforced as patterns.
+  enforceSNI: true
+
+monitoring:
+  enabled: true
+  podMonitor:
+    interval: 30s
+    labels: {}
+    # Drops the `email` label (PII) from claude_code_self_hosted_runner_locked_account.
+    dropEmailLabel: true
+  prometheusRule:
+    labels: {}
+    sleepTransitionFor: 2m
