@@ -108,8 +108,7 @@ spec:
             - name: health
               containerPort: {{ $o.healthPort }}
               protocol: TCP
-          # /healthz answers 200 whenever the process is alive; poll health is
-          # observed through metrics (orchestrator_connected), not probes.
+          # /healthz means alive; poll health is a metric, not a probe.
           readinessProbe:
             httpGet:
               path: /healthz

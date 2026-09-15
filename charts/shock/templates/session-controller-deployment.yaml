@@ -9,8 +9,7 @@ metadata:
     {{- include "shock.labels" $labels | nindent 4 }}
 spec:
   replicas: 1
-  # Every mutation is UID + resourceVersion pinned, so the brief overlap a
-  # reschedule can cause is safe; Recreate keeps it brief.
+  # Writes are UID + resourceVersion pinned, so a brief overlap is safe.
   strategy:
     type: Recreate
   selector:

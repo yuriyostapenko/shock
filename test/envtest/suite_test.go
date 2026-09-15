@@ -1,10 +1,8 @@
 //go:build envtest
 
-// Package envtest exercises the API-concurrency semantics the fake client
-// cannot reproduce (spec section 12): resourceVersion conflicts on
-// conditional patches, UID + resourceVersion delete preconditions, immutable
-// Secrets, and metadata.generation behavior on spec changes. There is no
-// agent-sandbox controller here; tests set status conditions themselves.
+// Package envtest covers the API semantics the fake client lacks (spec
+// section 12): conflicts, delete preconditions, immutable Secrets,
+// generation bumps. No agent-sandbox controller; tests set conditions.
 package envtest
 
 import (

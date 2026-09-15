@@ -59,9 +59,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: shock hook spawn-runner | shock session-controller [flags] | shock version")
 }
 
-// runHook returns the process exit code per the spawn-runner contract. The
-// actionable error goes to stderr (the orchestrator surfaces its tail as the
-// failure reason); nothing sensitive is ever printed.
+// runHook returns the spawn-runner exit code; the error goes to stderr, which
+// the orchestrator surfaces as the failure reason.
 func runHook() int {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	cfg, err := hook.ConfigFromEnv(os.Getenv)

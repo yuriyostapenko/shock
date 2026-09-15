@@ -43,8 +43,7 @@ var CRDServed = prometheus.NewGauge(prometheus.GaugeOpts{
 	Help: "1 when the agent-sandbox v1beta1 Sandbox CRD is served by the API server.",
 })
 
-// StateCollector exports sandbox-state series straight from the informer
-// cache at scrape time, so nothing goes stale when a Sandbox disappears.
+// StateCollector exports sandbox-state series from the cache at scrape time.
 type StateCollector struct {
 	Reader    client.Reader
 	Namespace string

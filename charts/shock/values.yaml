@@ -1,14 +1,11 @@
-# Default values for shock. See README.md for the runner image contract and
-# operational notes. agent-sandbox (https://github.com/kubernetes-sigs/agent-sandbox)
-# is a prerequisite installed separately from its upstream releases.
+# Default values for shock. agent-sandbox is a prerequisite installed
+# separately: https://github.com/kubernetes-sigs/agent-sandbox
 
 environment:
-  # Name of an existing Secret with key `environment-secret` holding the
-  # environment key from the Cloud environments admin page. Required unless
-  # secretValue is set.
+  # Existing Secret with key `environment-secret`: the environment key from
+  # the Cloud environments admin page. Required unless secretValue is set.
   existingSecret: ""
-  # Inline value rendered into a chart-managed Secret. Prefer existingSecret;
-  # values files with credentials tend to end up in git.
+  # Inline key rendered into a chart-managed Secret. Prefer existingSecret.
   secretValue: ""
 
 orchestrator:
@@ -19,11 +16,10 @@ orchestrator:
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   replicas: 2
-  # Server-side spawn lease (p99 wake including the initial suspension
-  # round-trip, session-controller latency, image pull and pod start).
-  # All replicas share it. Range enforced by Anthropic: 10..3600.
+  # Spawn lease granted by the control plane: p99 wake incl. image pull and
+  # Pod start. Anthropic allows 10..3600.
   expectedSpawnSeconds: 180
-  # Hook process budget. Template rendering fails unless hookTimeout + 5 < expectedSpawnSeconds.
+  # Hook process budget; must be < expectedSpawnSeconds - 5.
   hookTimeout: 30
   hookConcurrency: 4
   healthPort: 8080
@@ -38,7 +34,7 @@ orchestrator:
   podAnnotations: {}
   nodeSelector: {}
   tolerations: []
-  # Defaults to preferred anti-affinity across nodes on the selector labels.
+  # Empty = preferred anti-affinity across nodes.
   affinity: {}
   priorityClassName: ""
   pdb:
@@ -72,13 +68,11 @@ runner:
     digest: ""       # pinned by the release workflow into the published chart
     pullPolicy: IfNotPresent
   imagePullSecrets: []
-  # The runner's --base-dir, where repositories are checked out. It must be
-  # the PVC mount path (storage.mountPath) or a directory below it, and the
-  # same on every runner in the environment: recorded absolute paths must
-  # resolve on resume.
+  # The runner's --base-dir (repository checkouts). Must be storage.mountPath
+  # or below it, and identical on every runner: paths are recorded absolute.
   baseDir: /home/runner/workspace
   runtimeClassName: ""    # e.g. kata, gvisor; empty = runc
-  # Must cover the runner's SIGKILL floor: 75 s at defaults, 105 s with push-outcome.
+  # Runner SIGKILL floor: 75 s at defaults, 105 s with push-outcome.
   terminationGracePeriodSeconds: 120
   healthPort: 8080
   flags:
@@ -86,17 +80,13 @@ runner:
     killSessionAfterMin: 480
     exitIfUnusedMin: 10
     pushOutcomeOnRelease: true
-    # Route git through api.anthropic.com with the session creator's claude.ai
-    # GitHub connection, so the runner image carries no git credentials.
-    # Requires capacity 1 and git >= 2.32, both true here. Set false when you
-    # provide git credentials yourself (wrapper, checkout hook, image config).
+    # Git via api.anthropic.com with the session creator's GitHub connection;
+    # the image carries no git credentials. Set false to provide your own.
     useAnthropicGitProxy: true
-  # Appended to the rendered `claude self-hosted-runner` args, e.g.
-  # ["--exec-path", "/opt/claude/wrapper.sh"] for the credentials wrapper.
+  # Appended to the rendered runner args, e.g. ["--exec-path", "/opt/claude/wrapper.sh"].
   extraArgs: []
-  # By default the image's entrypoint runs with the rendered args (the default
-  # image and the deploy doc's recipe both end in claude). Set to replace the
-  # command; `args` is then used verbatim and flags/extraArgs are ignored.
+  # Empty = the image entrypoint with the rendered args. Set to replace it;
+  # `args` is then used verbatim and flags/extraArgs are ignored.
   command: []
   args: []
   extraEnv: []
@@ -110,15 +100,13 @@ runner:
       type: RuntimeDefault
     capabilities:
       drop: ["ALL"]
-  # fsGroup lets a non-root runner write to a freshly provisioned PVC.
+  # fsGroup makes a fresh PVC writable for the non-root runner.
   podSecurityContext:
     fsGroup: 1000
   serviceAccountName: ""  # no token is ever mounted, whatever account is used
-  # Set false to run the Pod in a user namespace (Kubernetes 1.36 GA; needs
-  # containerd 2.0+/CRI-O 1.25+ and kernel 6.3+ with idmapped mounts). Root
-  # inside the container is then an unprivileged host user, so `apt-get` works
-  # in the default runner image with securityContext.runAsUser: 0 and
-  # runAsNonRoot: false. Leave unset to keep the host user namespace.
+  # false = user namespace (Kubernetes 1.36 GA; containerd 2.0+/CRI-O 1.25+,
+  # kernel 6.3+): container root is an unprivileged host user, so apt-get
+  # works with runAsUser 0 and runAsNonRoot false. null = host user namespace.
   hostUsers: null
   priorityClassName: ""
   nodeSelector: {}
@@ -127,20 +115,15 @@ runner:
   podLabels: {}
   podAnnotations: {}
   storage:
-    # Where the per-session PVC is mounted. The default is the runner user's
-    # home, so everything a session installs or configures under ~ survives
-    # sleep; baseDir lives inside it. Anything written there, including
-    # credentials tools cache in dotfiles, stays on the disk until GC.
+    # Per-session PVC mount. The runner's home by default, so everything under
+    # ~ (tools, caches, dotfiles incl. any cached credentials) survives sleep.
     mountPath: /home/runner
     className: ""
     size: 20Gi
-    # Immutable after Sandbox creation: existing sessions keep the mode they
-    # were born with. Decide before first install.
+    # Immutable per Sandbox: decide before first install.
     accessMode: ReadWriteOncePod
-  # Environment notes for Claude, mounted read-only at /etc/claude-code/CLAUDE.md
-  # (Claude Code's managed-policy instructions, loaded into every session before
-  # user and project CLAUDE.md files). Keep it short and concrete; an empty string
-  # mounts nothing.
+  # Mounted read-only at /etc/claude-code/CLAUDE.md, Claude Code's managed
+  # instructions loaded into every session. Empty mounts nothing.
   instructions: |
     # This runner environment
 
@@ -159,37 +142,33 @@ runner:
       credentials. Push work to `claude/*` branches.
     - `/etc/claude-code` is read-only. Everything under `~` is yours to change.
 
-  # Deep-merged over the rendered Sandbox podTemplate by Helm (maps merge,
-  # lists replace). The hook then forces the template contract fields; see README.
+  # Deep-merged over the rendered podTemplate (maps merge, lists replace);
+  # the hook forces the contract fields afterwards. See README.
   podTemplate: {}
 
 network:
-  # cilium: CiliumNetworkPolicy with toFQDNs. kubernetes: plain NetworkPolicy
-  # without FQDN filtering (documented gap). none: render nothing.
+  # cilium: CiliumNetworkPolicy with toFQDNs. kubernetes: plain NetworkPolicy,
+  # no FQDN filtering. none: nothing.
   mode: cilium
-  # Also allow Anthropic's Trusted-level default domains, the allow list of
-  # Anthropic-hosted environments (files/anthropic-trusted-domains.txt, ~200
-  # hosts: registries, GitHub, cloud SDKs). It is broad; set false to allow
-  # only allowedFQDNs. Refresh the file with `make trusted-domains`.
+  # Also allow Anthropic's Trusted-level domains (files/anthropic-trusted-domains.txt,
+  # ~200 hosts, broad). Refresh with `make trusted-domains`.
   anthropicTrustedDomains: true
-  # host or host:port (443 default). This deployment's own egress list: only
-  # hosts Anthropic's Trusted list lacks, so the two never overlap. With
-  # anthropicTrustedDomains false, list every host yourself, starting with
-  # api.anthropic.com (the chart refuses to render without it). A leading "*."
-  # matches every subdomain.
-  # Self-hosted requirements: https://code.claude.com/docs/en/self-hosted-environments-deploy#network-requirements
+  # host or host:port (443 default); a leading "*." matches every subdomain.
+  # Only hosts the Trusted list lacks. With anthropicTrustedDomains false,
+  # list everything yourself; api.anthropic.com is required.
+  # https://code.claude.com/docs/en/self-hosted-environments-deploy#network-requirements
   allowedFQDNs:
-    # Anthropic: plugin downloads and pre-approved WebFetch docs lookups
+    # Anthropic: plugin downloads, docs lookups
     - downloads.claude.ai
     - claude.com
-    # GitHub release assets (redirect target) and ghcr.io layer blobs
+    # GitHub release assets, ghcr.io layers
     - github-releases.githubusercontent.com
     - pkg-containers.githubusercontent.com
     # mise: version and JVM metadata
     - mise.jdx.dev
     - mise-versions.jdx.dev
     - mise-java.jdx.dev
-    # Python: PyPy builds (CPython builds come from GitHub release assets)
+    # Python: PyPy builds
     - downloads.python.org
     # Go toolchain downloads
     - go.dev
@@ -197,15 +176,12 @@ network:
     # .NET SDK downloads
     - builds.dotnet.microsoft.com
     - download.visualstudio.microsoft.com
-    # Java: Adoptium API, used by Gradle toolchain auto-provisioning and SDKMAN
-    # (mise itself reads mise-java.jdx.dev; Temurin binaries are GitHub assets)
+    # Java: Adoptium API (Gradle toolchain provisioning, SDKMAN)
     - api.adoptium.net
-    # Sigstore: cosign keyless verification (Fulcio, Rekor, TUF root)
+    # Sigstore: cosign keyless verification
     - "*.sigstore.dev"
-    # Container registry hosts behind the fronts Anthropic's list names
-    # (anthropics/claude-code#71629): layer blobs come from a different host.
-    # ECR Public serves layers from per-distribution *.cloudfront.net hosts;
-    # that wildcard would admit every CloudFront distribution, so it is not here.
+    # Registry layer hosts behind fronts on the Trusted list (anthropics/claude-code#71629).
+    # ECR Public layers need *.cloudfront.net, too broad to include.
     - production.cloudfront.docker.com
     - registry.k8s.io
 
@@ -214,17 +190,13 @@ network:
     podLabels:
       k8s-app: kube-dns
   metadataCIDR: 169.254.169.254/32
-  # cilium mode: require the TLS handshake to name a host matching the
-  # allowedFQDNs entry (SNI). FQDN policy admits resolved addresses, and CDN
-  # addresses are shared between customers; SNI enforcement keeps the allow
-  # list a list of names. Wildcard entries are enforced as patterns.
+  # cilium mode: TLS SNI must match the entry. CDN addresses are shared, so
+  # address-only rules admit neighbours; wildcards are enforced as patterns.
   enforceSNI: true
-  # Appended to allowedFQDNs and the Trusted list: your git host, mirrors,
-  # internal services. Use this to add without copying the defaults.
+  # Appended to the lists above: git host, mirrors, internal services.
   extraAllowedFQDNs: []
-  # Hosts removed from the merged list, written as in the lists ("*.amazonaws.com",
-  # "storage.googleapis.com"). Matches entries, not reach: excluding a name that a
-  # remaining wildcard still covers changes nothing.
+  # Removed from the merged list, written as listed ("*.amazonaws.com").
+  # Removes entries, not reach: a remaining wildcard still admits the host.
   excludeFQDNs: []
 
 monitoring:
@@ -232,7 +204,7 @@ monitoring:
   podMonitor:
     interval: 30s
     labels: {}
-    # Drops the `email` label (PII) from claude_code_self_hosted_runner_locked_account.
+    # Drop the `email` label (PII) from the locked-account series.
     dropEmailLabel: true
   prometheusRule:
     labels: {}

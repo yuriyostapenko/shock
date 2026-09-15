@@ -31,7 +31,6 @@ metadata:
   labels:
     {{- include "shock.labels" $labels | nindent 4 }}
 data:
-  # Fully rendered by Helm; the hook strict-decodes it into a typed Sandbox
-  # and stamps only the session identity (spec section 4).
+  # The hook strict-decodes this and stamps the session identity (spec section 4).
   sandbox-template.yaml: |
     {{- toYaml $sandbox | nindent 4 }}

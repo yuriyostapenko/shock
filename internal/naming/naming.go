@@ -1,7 +1,5 @@
-// Package naming holds the names, labels and annotations shared by the
-// spawn-runner hook and the session controller. It is the single
-// implementation of the conventions in spec section 5, so the names the hook
-// writes and the selectors the controller lists on cannot drift.
+// Package naming holds the names, labels and annotations shared by the hook
+// and the session controller (spec section 5).
 package naming
 
 import (
@@ -95,9 +93,7 @@ const (
 	hashSuffixLength = 8
 )
 
-// SelectorLabels returns the frozen selector subset (name + instance) for a
-// component of a release. Version and chart labels are rendered by Helm and
-// are never part of a selector.
+// SelectorLabels returns the frozen selector subset (name + instance).
 func SelectorLabels(component, release string) map[string]string {
 	return map[string]string{
 		LabelName:     component,
@@ -105,12 +101,9 @@ func SelectorLabels(component, release string) map[string]string {
 	}
 }
 
-// SandboxName derives the Sandbox name for a Claude session of a release:
-// "<release>-cs-<session-id>", release-scoped so two releases offered the same
-// session in one namespace never collide. Both parts are RFC 1123 sanitized;
-// the release part is cut to 24 chars, the id part to what fits in 63 with an
-// "-<8-char fnv hash of the raw id>" suffix, appended whenever sanitizing or
-// truncating changed the id.
+// SandboxName is "<release>-cs-<session-id>", RFC 1123 sanitized and at most
+// 63 chars: the release part is cut to 24, the id part to what fits, with an
+// 8-char fnv hash suffix whenever sanitizing or truncating changed the id.
 func SandboxName(release, sessionID string) string {
 	return scopedName(release, sandboxPrefix, sessionID)
 }
@@ -134,12 +127,9 @@ func PVCName(sandboxName string) string {
 	return WorkspaceClaimName + "-" + sandboxName
 }
 
-// WorkOrderSecretName derives the immutable work-order Secret name:
-// "<release>-wo-" + full lowercase hex sha256 over a length-prefixed encoding
-// of (release, sessionID, sandboxUID, orderID). The release part is sanitized
-// and cut like SandboxName's so the two read alike; including the Sandbox UID
-// in the hash means a recreated Sandbox can never adopt a Secret owned by a
-// deleted one.
+// WorkOrderSecretName is "<release>-wo-<sha256>" over a length-prefixed
+// encoding of (release, sessionID, sandboxUID, orderID). The UID keeps a
+// recreated Sandbox from adopting a deleted one's Secret.
 func WorkOrderSecretName(release, sessionID, sandboxUID, orderID string) string {
 	h := sha256.New()
 	for _, part := range []string{release, sessionID, sandboxUID, orderID} {
@@ -148,8 +138,7 @@ func WorkOrderSecretName(release, sessionID, sandboxUID, orderID string) string 
 	return releasePrefix(release) + secretPrefix + "-" + hex.EncodeToString(h.Sum(nil))
 }
 
-// releasePrefix returns "<sanitized release>-" cut to maxReleaseLen, or "" for
-// an empty release.
+// releasePrefix is "<sanitized release>-" cut to maxReleaseLen, or "".
 func releasePrefix(release string) string {
 	rel, _ := sanitizeRFC1123(release)
 	if len(rel) > maxReleaseLen {
@@ -161,9 +150,8 @@ func releasePrefix(release string) string {
 	return rel + "-"
 }
 
-// LabelValue returns v when it is a valid Kubernetes label value, otherwise a
-// sanitized form suffixed with an fnv hash of the raw value so it stays
-// unique and deterministic.
+// LabelValue returns v if it is a valid label value, else a sanitized form
+// with an fnv hash suffix.
 func LabelValue(v string) string {
 	if v == "" {
 		return ""
@@ -197,9 +185,8 @@ func isValidLabelValue(v string) bool {
 	return true
 }
 
-// sanitizeRFC1123 lowercases and maps every character outside [a-z0-9-] to
-// "-", collapses runs of "-" and trims them from both ends. altered reports
-// whether the output differs from the input.
+// sanitizeRFC1123 lowercases, maps other characters to "-", collapses and
+// trims dashes. altered reports whether the output differs.
 func sanitizeRFC1123(s string) (string, bool) {
 	var b strings.Builder
 	lastDash := false

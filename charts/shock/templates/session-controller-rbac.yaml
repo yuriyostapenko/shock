@@ -19,8 +19,7 @@ rules:
   - apiGroups: ["agents.x-k8s.io"]
     resources: ["sandboxes"]
     verbs: ["get", "list", "watch", "patch"{{ if .Values.sessionController.gc.enabled }}, "delete"{{ end }}]
-  # get: immutable order verification. Secrets are reaped by ownerReference
-  # together with their Sandbox.
+  # get only: order verification. Secrets cascade with their Sandbox.
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]

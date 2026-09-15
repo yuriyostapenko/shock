@@ -1,22 +1,17 @@
 # syntax=docker/dockerfile:1.7
-# EXPERIMENTAL: the default runner image plus a rootless Docker engine that a
-# session can start itself with `dockerd-rootless.sh &` (DOCKER_HOST already
-# points at its socket). Verified locally with docker run under the settings
-# below; untested on Kubernetes and outside the release pipeline.
+# EXPERIMENTAL: the default runner image plus a rootless Docker engine a
+# session starts itself with `dockerd-rootless.sh &`. Verified with docker run
+# only; not built by the release pipeline.
 #
-# The engine runs as the runner user (uid 1000) through rootlesskit. The Pod
-# running this image needs, on the runner container:
+# The runner container needs:
 #   securityContext.seccompProfile.type: Unconfined
 #   securityContext.appArmorProfile.type: Unconfined
 #   securityContext.procMount: Unmasked
 #   securityContext.allowPrivilegeEscalation: true   (newuidmap file capabilities)
 #   securityContext.capabilities: {drop: [ALL], add: [SETUID, SETGID]}
-#   a /dev/net/tun device (slirp4netns), e.g. through a device plugin
-#   a volume owned by uid 1000 at /home/runner/.local/share/docker (emptyDir
-#   with fsGroup 1000, or the workspace PVC); overlayfs cannot nest on the
-#   image filesystem.
-# Unconfined seccomp and an unmasked /proc place the namespace at the
-# privileged Pod Security Standards level.
+#   a /dev/net/tun device (slirp4netns)
+#   a volume owned by uid 1000 at /home/runner/.local/share/docker
+# That is the privileged Pod Security Standards level.
 
 ARG BASE_IMAGE=shock-runner:dev
 ARG DOCKER_VERSION=29.8.0

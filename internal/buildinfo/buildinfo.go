@@ -1,6 +1,4 @@
-// Package buildinfo reports what the running binary was built from, using the
-// version control metadata the Go toolchain stamps into main packages built
-// inside a repository (go build -buildvcs). Nothing is injected at link time.
+// Package buildinfo reports the VCS metadata Go stamps with -buildvcs.
 package buildinfo
 
 import (

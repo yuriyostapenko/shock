@@ -1,6 +1,5 @@
-# e2e values: a fake runner (busybox) that records each order on the PVC,
-# sleeps and exits as the "work order" tells it to. The orchestrator process
-# is not run; the test invokes the hook binary directly.
+# e2e values: a busybox fake runner that records each order on the PVC and
+# sleeps/exits as its work order says. The test invokes the hook directly.
 environment:
   existingSecret: e2e-environment
 orchestrator:
@@ -51,8 +50,7 @@ runner:
   storage:
     mountPath: /workspace
     size: 100Mi
-    # kind's local-path provisioner is not a CSI driver; RWOP enforcement
-    # needs one, so e2e asserts the configured mode is what the PVC reports.
+    # kind's local-path provisioner cannot enforce RWOP; e2e asserts the mode only.
     accessMode: ReadWriteOnce
 network:
   mode: none

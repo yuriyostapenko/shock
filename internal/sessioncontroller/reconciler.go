@@ -1,8 +1,5 @@
 // Package sessioncontroller implements `shock session-controller` (spec
-// section 7): the single sequencer for sleep and wake. It bridges "runner
-// process ended" to operatingMode Suspended and "pending-spawn declared and
-// suspension confirmed" to operatingMode Running, observes spawns, detects
-// stranded pods, garbage-collects idle sessions and alarms on MultiplePods.
+// section 7): sleep, wake, spawn observation, zombie detection, GC and alarms.
 package sessioncontroller
 
 import (
@@ -48,9 +45,8 @@ type Options struct {
 
 // Reconciler reconciles one release's Sandboxes.
 type Reconciler struct {
-	// Client is the manager client: cached reads for Sandboxes and Pods,
-	// direct writes. Every mutation is pinned to the read's UID and
-	// resourceVersion, so a cache read never becomes a stale write.
+	// Client reads Sandboxes and Pods from the cache; every write is pinned
+	// to the read's UID and resourceVersion.
 	Client client.Client
 	// Secrets is an uncached reader for work-order Secrets.
 	Secrets client.Reader
@@ -72,8 +68,7 @@ func (r *Reconciler) now() time.Time {
 	return time.Now()
 }
 
-// Reconcile evaluates the predicates in spec order. After any state-changing
-// write it returns and lets the resulting watch event drive the next pass.
+// Reconcile evaluates the predicates in spec order and returns after any write.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	sb := &sandboxv1beta1.Sandbox{}
@@ -88,7 +83,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, nil
 	}
 	if sb.Labels[naming.LabelInstance] != r.Release || sb.Labels[naming.LabelName] != naming.ComponentRunner {
-		// The cache selector already excludes these; belt and braces.
+		// The cache selector already excludes these.
 		return ctrl.Result{}, nil
 	}
 
@@ -120,13 +115,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 }
 
 func (r *Reconciler) forget(key types.NamespacedName) {
-	// Per-UID state is small; it is dropped when the UID stops appearing.
+	// Dropped when the UID stops appearing.
 	_ = key
 }
 
-// ownedPods lists this release's runner Pods (the same selector the informer
-// cache is restricted to) and keeps those whose controller owner UID is this
-// Sandbox. Labels only narrow the candidates; ownership is the UID match.
+// ownedPods lists the release's runner Pods and keeps those owned by this
+// Sandbox's UID.
 func (r *Reconciler) ownedPods(ctx context.Context, sb *sandboxv1beta1.Sandbox) ([]corev1.Pod, error) {
 	list := &corev1.PodList{}
 	if err := r.Client.List(ctx, list, client.InNamespace(sb.Namespace), client.MatchingLabels(naming.SelectorLabels(naming.ComponentRunner, r.Release))); err != nil {
@@ -141,8 +135,7 @@ func (r *Reconciler) ownedPods(ctx context.Context, sb *sandboxv1beta1.Sandbox) 
 	return out, nil
 }
 
-// currentGenerationTrue reports whether the condition is True and describes
-// the current spec generation (spec section 7, reading rule).
+// currentGenerationTrue: condition True and observedGeneration current.
 func currentGenerationTrue(sb *sandboxv1beta1.Sandbox, condType sandboxv1beta1.ConditionType) bool {
 	c := meta.FindStatusCondition(sb.Status.Conditions, string(condType))
 	return c != nil && c.Status == metav1.ConditionTrue && c.ObservedGeneration == sb.Generation
@@ -158,8 +151,7 @@ func podWorkOrderSecret(pod *corev1.Pod) string {
 	return ""
 }
 
-// spawnObservation clears pending intent once the owned Pod for the applied
-// order exists in any phase. Readiness is never consulted.
+// spawnObservation clears pending intent once the applied order's Pod exists.
 func (r *Reconciler) spawnObservation(ctx context.Context, logger logr, sb *sandboxv1beta1.Sandbox, pods []corev1.Pod) (bool, error) {
 	pending := sb.Annotations[naming.AnnotationPendingSpawn]
 	if pending == "" || sb.Annotations[naming.AnnotationAppliedSpawn] != pending {
@@ -215,8 +207,7 @@ func (r *Reconciler) sleep(ctx context.Context, logger logr, sb *sandboxv1beta1.
 	return true, nil
 }
 
-// wake installs the pending order once suspension is confirmed for the
-// current generation and the prepared Secret validates.
+// wake installs the pending order once suspension is confirmed and the Secret validates.
 func (r *Reconciler) wake(ctx context.Context, logger logr, sb *sandboxv1beta1.Sandbox) (bool, error) {
 	if sb.Spec.OperatingMode != sandboxv1beta1.SandboxOperatingModeSuspended {
 		return false, nil
@@ -278,8 +269,7 @@ func (r *Reconciler) wake(ctx context.Context, logger logr, sb *sandboxv1beta1.S
 	return true, nil
 }
 
-// validateWorkOrderSecret checks the referenced Secret against the accepted
-// order, attempt, session and Sandbox UID. Messages never include data.
+// validateWorkOrderSecret checks the Secret against the accepted order; messages carry no data.
 func validateWorkOrderSecret(secret *corev1.Secret, sb *sandboxv1beta1.Sandbox, order, release string) error {
 	if secret.Immutable == nil || !*secret.Immutable {
 		return errors.New("secret is not immutable")
@@ -308,9 +298,8 @@ func validateWorkOrderSecret(secret *corev1.Secret, sb *sandboxv1beta1.Sandbox, 
 	return errors.New("secret is not owned by this Sandbox")
 }
 
-// zombie emits one Event per owned Pod that has been Terminating longer than
-// the threshold. It never deletes anything. Returns a requeue delay while a
-// pod is terminating but below the threshold.
+// zombie emits an Event per Pod Terminating past the threshold; it never
+// deletes. Requeues while a Pod is terminating below it.
 func (r *Reconciler) zombie(sb *sandboxv1beta1.Sandbox, pods []corev1.Pod) time.Duration {
 	if !r.Options.ZombieEnabled {
 		return 0
@@ -345,8 +334,8 @@ func (r *Reconciler) zombie(sb *sandboxv1beta1.Sandbox, pods []corev1.Pod) time.
 	return requeue
 }
 
-// gc deletes a Sandbox idle past maxIdle with UID and resourceVersion delete
-// preconditions. PVC and Secrets cascade by ownerReference.
+// gc deletes a Sandbox idle past maxIdle with UID and resourceVersion
+// preconditions; PVC and Secrets cascade.
 func (r *Reconciler) gc(ctx context.Context, logger logr, sb *sandboxv1beta1.Sandbox) (bool, time.Duration, error) {
 	if !r.Options.GCEnabled {
 		return false, 0, nil
@@ -379,7 +368,7 @@ func (r *Reconciler) gc(ctx context.Context, logger logr, sb *sandboxv1beta1.San
 		return true, 0, nil
 	}
 	if err != nil {
-		// Conflict: something accepted work or changed the object. Re-read and re-evaluate on the next pass.
+		// Conflict: re-evaluate on the next pass.
 		return false, 0, fmt.Errorf("gc delete: %w", err)
 	}
 	logger.Info("gc: deleted idle sandbox", "idle", idle.Truncate(time.Second))
@@ -419,8 +408,7 @@ type logr interface {
 	Info(msg string, keysAndValues ...any)
 }
 
-// EventRecorder is the subset of k8s.io/client-go/tools/events.EventRecorder
-// the reconciler uses.
+// EventRecorder is the subset of events.EventRecorder used here.
 type EventRecorder interface {
 	Eventf(regarding runtime.Object, related runtime.Object, eventtype, reason, action, note string, args ...any)
 }

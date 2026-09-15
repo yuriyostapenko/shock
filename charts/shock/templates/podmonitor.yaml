@@ -26,8 +26,7 @@ spec:
       interval: {{ .Values.monitoring.podMonitor.interval }}
       {{- if .Values.monitoring.podMonitor.dropEmailLabel }}
       metricRelabelings:
-        # claude_code_self_hosted_runner_locked_account carries the account
-        # email as a label. Drop it; hash it instead if you need a stable id.
+        # The locked-account series carries the account email; drop it.
         - action: labeldrop
           regex: email
       {{- end }}

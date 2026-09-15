@@ -92,8 +92,7 @@ jobs:
       - uses: azure/setup-helm@v5.0.1
         with:
           version: ${{ env.HELM_VERSION }}
-      # kind from the Go module proxy and kubectl from dl.k8s.io with retries:
-      # both are pinned and neither depends on a GitHub release download.
+      # kind via the Go module proxy, kubectl from dl.k8s.io: no GitHub release downloads.
       - name: install kind and kubectl
         run: |
           go install sigs.k8s.io/kind@${{ env.KIND_VERSION }}

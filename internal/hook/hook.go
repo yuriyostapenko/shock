@@ -1,8 +1,6 @@
-// Package hook implements `shock hook spawn-runner` (spec section 6). The hook
-// only declares state: it creates or patches the session's Sandbox, publishes
-// an immutable, owned work-order Secret and stamps pending-spawn. It never
-// waits for Pods or conditions; the session controller sequences everything
-// else.
+// Package hook implements `shock hook spawn-runner` (spec section 6): it
+// creates or patches the session's Sandbox, publishes the work-order Secret
+// and stamps pending-spawn. It never waits on Pods; the controller sequences.
 package hook
 
 import (
@@ -88,9 +86,8 @@ type Hook struct {
 	MaxAttempts int
 }
 
-// Run executes the hook for one request. The returned error's exit code is
-// obtained with ExitCodeFor. Nothing sensitive is ever included in errors or
-// logs: not the work order, not the account email.
+// Run executes one request; ExitCodeFor maps the error to the exit code.
+// Errors and logs never carry the work order or the account email.
 func (h *Hook) Run(ctx context.Context, req Request) error {
 	if h.Now == nil {
 		h.Now = time.Now
@@ -102,9 +99,8 @@ func (h *Hook) Run(ctx context.Context, req Request) error {
 		h.Log = slog.Default()
 	}
 	if req.SessionID == "" {
-		// A standby (pre-warm) order: the orchestrator sends these only with
-		// --min-idle > 0, which the chart never sets. Standby runners cannot have
-		// a per-session disk, so SHOCK does not run them.
+		// Standby (pre-warm) order, sent only with --min-idle > 0. Unsupported:
+		// a standby runner has no per-session disk.
 		return nonRetryable("order %s has no session id: pre-warming is not supported; run the orchestrator without --min-idle", req.OrderID)
 	}
 	return h.runSession(ctx, req)
@@ -173,8 +169,8 @@ func (h *Hook) runSession(ctx context.Context, req Request) error {
 	return retryable("gave up after %d conflicting attempts on Sandbox %s", h.MaxAttempts, tmpl.Name)
 }
 
-// createSandbox creates the Sandbox once, Suspended, with the pending order
-// and attempt in the create body. applied-spawn is deliberately absent.
+// createSandbox creates the Sandbox Suspended with the pending order in the
+// create body; applied-spawn stays absent.
 func (h *Hook) createSandbox(ctx context.Context, tmpl *sandboxv1beta1.Sandbox, req Request) (*sandboxv1beta1.Sandbox, error) {
 	sb := tmpl.DeepCopy()
 	if sb.Annotations == nil {
@@ -241,8 +237,7 @@ func parseAttempt(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
 }
 
-// reconcileExisting takes the existing-object path. done=false with a stale
-// error means the caller must re-read and recompute.
+// reconcileExisting handles an existing Sandbox; a stale error means re-read.
 func (h *Hook) reconcileExisting(ctx context.Context, log *slog.Logger, sb, tmpl *sandboxv1beta1.Sandbox, req Request) (bool, error) {
 	d, err := evaluate(sb, req, h.Config.Release)
 	if err != nil {
@@ -261,9 +256,8 @@ func (h *Hook) reconcileExisting(ctx context.Context, log *slog.Logger, sb, tmpl
 	return false, nonRetryable("unreachable decision %d", d)
 }
 
-// repairRedelivery makes sure the accepted order's Secret exists and that the
-// pointer annotations are complete, without re-arming pending-spawn or
-// creating another workload.
+// repairRedelivery completes the accepted order's Secret and pointers
+// without re-arming pending-spawn.
 func (h *Hook) repairRedelivery(ctx context.Context, log *slog.Logger, sb, tmpl *sandboxv1beta1.Sandbox, req Request) (bool, error) {
 	secretName := naming.WorkOrderSecretName(h.Config.Release, req.SessionID, string(sb.UID), req.OrderID)
 	if err := h.ensureSecret(ctx, sb, tmpl, req, secretName); err != nil {
@@ -296,11 +290,9 @@ func (h *Hook) repairRedelivery(ctx context.Context, log *slog.Logger, sb, tmpl 
 	return true, nil
 }
 
-// publishNewer accepts a higher attempt: create its owned Secret, then in one
-// conditional patch move pending/last pointers, request suspension and
-// install the current chart template while leaving applied-spawn and the
-// Pod template's current order/Secret untouched. Wake installs the new order
-// only after suspension is confirmed.
+// publishNewer accepts a higher attempt: create its Secret, then in one
+// conditional patch move the pointers, request suspension and refresh the
+// chart template. Wake installs the order once suspension is confirmed.
 func (h *Hook) publishNewer(ctx context.Context, log *slog.Logger, sb, tmpl *sandboxv1beta1.Sandbox, req Request) (bool, error) {
 	secretName := naming.WorkOrderSecretName(h.Config.Release, req.SessionID, string(sb.UID), req.OrderID)
 	if err := h.ensureSecret(ctx, sb, tmpl, req, secretName); err != nil {
@@ -318,9 +310,7 @@ func (h *Hook) publishNewer(ctx context.Context, log *slog.Logger, sb, tmpl *san
 	mut.Annotations[naming.AnnotationLastOrderSecret] = secretName
 	mut.Spec.OperatingMode = sandboxv1beta1.SandboxOperatingModeSuspended
 
-	// Refresh the pod template from the current chart render so image and
-	// flag changes reach the session at its next spawn, carrying over the
-	// order currently installed on it.
+	// Refresh the pod template so image and flag changes reach the next spawn.
 	newPT := tmpl.Spec.PodTemplate.DeepCopy()
 	if cur := sb.Spec.PodTemplate.ObjectMeta.Annotations[naming.AnnotationOrderID]; cur != "" {
 		if newPT.ObjectMeta.Annotations == nil {
@@ -333,7 +323,7 @@ func (h *Hook) publishNewer(ctx context.Context, log *slog.Logger, sb, tmpl *san
 			v.Secret.SecretName = curVol.Secret.SecretName
 		}
 	}
-	// Session labels are per-session constants; keep the CR's own labels too.
+	// Keep the CR's own labels; add the session set.
 	for k, v := range sb.Spec.PodTemplate.ObjectMeta.Labels {
 		if _, ok := newPT.ObjectMeta.Labels[k]; !ok {
 			newPT.ObjectMeta.Labels[k] = v
@@ -349,8 +339,7 @@ func (h *Hook) publishNewer(ctx context.Context, log *slog.Logger, sb, tmpl *san
 	return true, nil
 }
 
-// patch applies an optimistic (UID + resourceVersion pinned) merge patch.
-// Stale errors are returned as-is for the caller's re-read loop.
+// patch applies a UID + resourceVersion pinned merge patch.
 func (h *Hook) patch(ctx context.Context, orig, mut *sandboxv1beta1.Sandbox) error {
 	p, err := patch.Optimistic(orig, mut)
 	if err != nil {
@@ -365,10 +354,8 @@ func (h *Hook) patch(ctx context.Context, orig, mut *sandboxv1beta1.Sandbox) err
 	return nil
 }
 
-// ensureSecret creates the immutable, owned work-order Secret with Create
-// (never apply, never overwrite). On AlreadyExists the existing Secret must
-// match data, order identity and owner UID exactly; any mismatch is
-// non-retryable.
+// ensureSecret creates the immutable, owned Secret; on AlreadyExists the
+// existing one must match exactly or the order is non-retryable.
 func (h *Hook) ensureSecret(ctx context.Context, sb, tmpl *sandboxv1beta1.Sandbox, req Request, name string) error {
 	desired := workOrderSecret(sb, tmpl.Labels, req, name)
 	err := h.Client.Create(ctx, desired)
@@ -419,8 +406,7 @@ func workOrderSecret(sb *sandboxv1beta1.Sandbox, labels map[string]string, req R
 	}
 }
 
-// verifySecret checks an existing Secret against the desired one. Messages
-// never include Secret data.
+// verifySecret compares an existing Secret to the desired one; messages carry no data.
 func verifySecret(existing, desired *corev1.Secret) error {
 	if existing.Immutable == nil || !*existing.Immutable {
 		return nonRetryable("work-order Secret %s exists but is not immutable", existing.Name)

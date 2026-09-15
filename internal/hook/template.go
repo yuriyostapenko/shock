@@ -12,8 +12,7 @@ import (
 	"github.com/yuriyostapenko/shock/internal/naming"
 )
 
-// LoadTemplate strict-decodes the Helm-rendered Sandbox template. An unknown
-// field is an error, not a silent drop (spec section 6, template contract).
+// LoadTemplate strict-decodes the rendered Sandbox template; unknown fields are errors.
 func LoadTemplate(path string) (*sandboxv1beta1.Sandbox, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -44,9 +43,8 @@ type Identity struct {
 
 // Contract holds the values the hook forces onto every podTemplate.
 type Contract struct {
-	// WorkspaceMountPath is the PVC mount path forced onto the runner's
-	// workspace volumeMount; BaseDir (the runner's --base-dir) must be equal
-	// to it or below it so the canonical clone lives on the disk.
+	// WorkspaceMountPath is forced onto the workspace volumeMount; BaseDir
+	// must be at or below it.
 	WorkspaceMountPath            string
 	BaseDir                       string
 	TerminationGracePeriodSeconds int64
@@ -64,8 +62,7 @@ func (c Contract) Validate() error {
 	return nil
 }
 
-// ValidateAnchors checks that the template still has the anchors the hook
-// needs. The error names the missing anchor.
+// ValidateAnchors checks the template anchors the hook relies on.
 func ValidateAnchors(sb *sandboxv1beta1.Sandbox) error {
 	if findContainer(&sb.Spec.PodTemplate.Spec, naming.RunnerContainerName) == nil {
 		return fmt.Errorf("sandbox template: required anchor missing: container named %q", naming.RunnerContainerName)
@@ -87,8 +84,7 @@ func ValidateAnchors(sb *sandboxv1beta1.Sandbox) error {
 	return nil
 }
 
-// ApplyContract stamps identity and forces the load-bearing fields onto the
-// template (spec section 6, "Forced fields"). It is idempotent.
+// ApplyContract stamps identity and forces the contract fields (spec section 6). Idempotent.
 func ApplyContract(sb *sandboxv1beta1.Sandbox, id Identity, c Contract) error {
 	if err := ValidateAnchors(sb); err != nil {
 		return err
@@ -102,7 +98,7 @@ func ApplyContract(sb *sandboxv1beta1.Sandbox, id Identity, c Contract) error {
 	sb.Name = naming.SandboxName(id.Release, id.SessionID)
 	sb.Namespace = id.Namespace
 	sb.Spec.OperatingMode = sandboxv1beta1.SandboxOperatingModeSuspended
-	// Never set: the sandbox controller short-circuits reconciliation on expiry.
+	// Never set: agent-sandbox stops reconciling an expired Sandbox.
 	sb.Spec.ShutdownTime = nil
 	sb.Spec.ShutdownPolicy = nil
 
@@ -121,8 +117,7 @@ func ApplyContract(sb *sandboxv1beta1.Sandbox, id Identity, c Contract) error {
 	if pt.ObjectMeta.Labels == nil {
 		pt.ObjectMeta.Labels = map[string]string{}
 	}
-	// The common set plus the session set, merged last so a user overlay can
-	// add labels but never displace the selector set.
+	// Merged last so an overlay can add labels but not displace the selector set.
 	for k, v := range sb.Labels {
 		pt.ObjectMeta.Labels[k] = v
 	}
@@ -147,8 +142,7 @@ func ApplyContract(sb *sandboxv1beta1.Sandbox, id Identity, c Contract) error {
 	if wo.Secret.SecretName == "" {
 		wo.Secret.SecretName = naming.PlaceholderSecretName
 	}
-	// The workspace volume itself is derived by the sandbox controller from
-	// volumeClaimTemplates; a user-supplied one would shadow the PVC.
+	// agent-sandbox derives the workspace volume; a user one would shadow the PVC.
 	spec.Volumes = removeVolume(spec.Volumes, naming.WorkspaceClaimName)
 	return nil
 }

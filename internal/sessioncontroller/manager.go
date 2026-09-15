@@ -80,10 +80,8 @@ func isNotFound(err error) bool {
 	return apierrors.IsNotFound(err)
 }
 
-// Run starts the session controller. While the agent-sandbox CRD is missing
-// it serves /healthz 200 and /readyz 503, logs once per interval and waits,
-// instead of crash-looping. Once the CRD is served the manager starts and
-// readiness follows cache sync plus a periodic CRD re-check.
+// Run starts the controller. Without the Sandbox CRD it serves /healthz 200
+// and /readyz 503 and waits; once served, readiness follows cache sync.
 func Run(ctx context.Context, cfg *rest.Config, opts ManagerOptions) error {
 	logger := log.FromContext(ctx).WithName("session-controller")
 	if opts.CRDCheckInterval == 0 {
@@ -183,8 +181,7 @@ func Run(ctx context.Context, cfg *rest.Config, opts ManagerOptions) error {
 	return mgr.Start(ctx)
 }
 
-// waitForCRD blocks until the CRD is served, running a minimal health server
-// on the bind address in the meantime so probes see alive-but-not-ready.
+// waitForCRD blocks until the CRD is served, answering probes meanwhile.
 func waitForCRD(ctx context.Context, logger interface {
 	Info(string, ...any)
 	Error(error, string, ...any)

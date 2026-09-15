@@ -83,12 +83,8 @@ defaultTag, and an empty repository or resolved tag fails the render.
 {{- end -}}
 {{- end -}}
 
-{{/*
-The effective egress allow list as a JSON array of fqdnEntry dicts, in order:
-network.allowedFQDNs, Anthropic's Trusted list when anthropicTrustedDomains is
-on, network.extraAllowedFQDNs; then duplicates (same host and port) collapse
-and every entry whose host is named in network.excludeFQDNs is dropped.
-*/}}
+{{/* Effective allow list (JSON array of fqdnEntry): allowedFQDNs, the Trusted
+list if enabled, extraAllowedFQDNs; deduped by host:port, minus excludeFQDNs. */}}
 {{- define "shock.fqdnEntries" -}}
 {{- $n := .Values.network -}}
 {{- $entries := list -}}
@@ -115,11 +111,8 @@ and every entry whose host is named in network.excludeFQDNs is dropped.
 {{- $out | toJson -}}
 {{- end -}}
 
-{{/*
-Parse "host" or "host:port" into (dict "host" "port" "pattern"). "pattern" is
-the Cilium spelling: a leading "*." (every subdomain) becomes "**.", which
-matches one or more labels in toFQDNs and serverNames alike.
-*/}}
+{{/* "host[:port]" -> (dict "host" "port" "pattern"); pattern spells a leading
+"*." as Cilium's multilevel "**.". */}}
 {{- define "shock.fqdnEntry" -}}
 {{- $parts := splitList ":" . -}}
 {{- $host := index $parts 0 -}}

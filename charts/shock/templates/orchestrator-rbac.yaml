@@ -8,9 +8,8 @@ metadata:
   labels:
     {{- include "shock.labels" $labels | nindent 4 }}
 ---
-# Namespaced permissions for `shock hook spawn-runner`. Kubernetes RBAC cannot
-# prefix-match names, so `secrets create` covers the namespace: dedicate the
-# namespace to this release (README, "Namespace and RBAC").
+# Permissions for `shock hook spawn-runner`. RBAC cannot prefix-match names,
+# so dedicate the namespace to this release (README).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

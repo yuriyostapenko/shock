@@ -32,8 +32,7 @@ lint:
 test:
 	$(GO) test ./internal/... ./cmd/...
 
-# envtest runs a real kube-apiserver + etcd: resourceVersion conflicts, UID
-# delete preconditions, immutable Secrets, generation bumps.
+# envtest: real kube-apiserver + etcd for the API concurrency tests.
 envtest:
 	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S) -p path)" $(GO) test -tags envtest ./test/envtest/... -count=1
 
@@ -44,7 +43,7 @@ helm-template:
 	helm template shock $(CHART) -n shock -f test/values/minimal.yaml --kube-version 1.35.0
 
 # The rendered sandbox-template must strict-decode into the typed Sandbox.
-# Regenerates charts/shock/files/anthropic-trusted-domains.txt from Anthropic's docs.
+# Regenerates charts/shock/files/anthropic-trusted-domains.txt.
 trusted-domains:
 	./hack/update-trusted-domains.sh
 

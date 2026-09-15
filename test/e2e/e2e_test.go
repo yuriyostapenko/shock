@@ -1,11 +1,8 @@
 //go:build e2e
 
-// Package e2e runs against a kind cluster with the pinned agent-sandbox
-// release installed (make e2e-setup). It installs the chart with a fake
-// busybox runner, invokes `shock hook spawn-runner` directly (the fake
-// control-plane stub) impersonating the orchestrator ServiceAccount, and
-// asserts the lifecycle from spec section 12, including the agent-sandbox
-// conformance items that pin upstream behavior and reason strings.
+// Package e2e runs against a kind cluster with agent-sandbox installed (make
+// e2e-setup): it installs the chart with a busybox fake runner, invokes the
+// hook as the orchestrator ServiceAccount and asserts spec section 12.
 package e2e
 
 import (
@@ -226,8 +223,7 @@ func ownedPods(t *testing.T, sb *sandboxv1beta1.Sandbox) []corev1.Pod {
 	return out
 }
 
-// updateSpec re-reads and retries on conflict: the upstream controller writes
-// status concurrently, so a plain Update on a stale read races with it.
+// updateSpec re-reads and retries on conflict with the upstream controller.
 func updateSpec(t *testing.T, key types.NamespacedName, mutate func(*sandboxv1beta1.Sandbox)) {
 	t.Helper()
 	for i := 0; i < 20; i++ {
@@ -422,8 +418,7 @@ func TestA_Install(t *testing.T) {
 	}
 }
 
-// TestB_Conformance pins the agent-sandbox behaviors SHOCK depends on, with
-// a plain Sandbox driven directly (no hook, no session controller involved).
+// TestB_Conformance pins the agent-sandbox behaviors SHOCK depends on.
 func TestB_Conformance(t *testing.T) {
 	tmpl, err := hook.LoadTemplate(templateFn)
 	if err != nil {

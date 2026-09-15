@@ -9,14 +9,9 @@ import (
 	"strings"
 )
 
-// Environment variable names set by the orchestrator on every spawn-runner
-// invocation. Verified against the on-demand-runners documentation page
-// (code.claude.com/docs/en/self-hosted-environments-configuration) on
-// 2026-09-14; CLAUDE_RUNNER_ATTEMPT is documented as "how many spawn requests
-// this session has had" and CLAUDE_RUNNER_ORDER_ID as the per-request
-// idempotency key. Observed live on 2026-09-15: the first spawn request of a
-// session carries CLAUDE_RUNNER_ATTEMPT=0, so the counter is zero-based. A
-// standby (pre-warm) order carries an empty session id.
+// Environment set by the orchestrator on every spawn-runner invocation
+// (code.claude.com/docs/en/self-hosted-environments-configuration). ATTEMPT
+// is zero-based; a standby order has an empty session id.
 const (
 	EnvWorkOrderFile = "CLAUDE_RUNNER_WORK_ORDER_FILE"
 	EnvOrderID       = "CLAUDE_RUNNER_ORDER_ID"
@@ -114,9 +109,8 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 	return c, nil
 }
 
-// RequestFromEnv parses the orchestrator-provided spawn request and copies
-// the work order out of its temp file (the orchestrator deletes the file
-// when the hook exits).
+// RequestFromEnv parses the spawn request and reads the work-order file,
+// which the orchestrator deletes when the hook exits.
 func RequestFromEnv(getenv func(string) string, readFile func(string) ([]byte, error)) (Request, error) {
 	r := Request{
 		OrderID:     getenv(EnvOrderID),

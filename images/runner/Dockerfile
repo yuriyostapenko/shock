@@ -1,18 +1,10 @@
 # syntax=docker/dockerfile:1.7
-# Default runner image, following Anthropic's deploy-doc recipe
+# Default runner image per Anthropic's recipe
 # (https://code.claude.com/docs/en/self-hosted-environments-deploy#build-the-runner-image):
-# debian:trixie-slim, git and openssh-client, the native claude binary verified
-# against the release manifest, and the doc's system git configuration.
-#
-# The runner user (uid 1000, matching the chart's default fsGroup) owns its
-# home, /home/runner, which the chart mounts the per-session PVC on, with
-# repositories checked out under /home/runner/workspace. Everything a session
-# installs or configures under ~ therefore survives sleep. Sessions install
-# tooling without root through the preinstalled user-space managers: mise
-# (runtimes and CLIs) and uv (Python and Python tools). apt is
-# present for clusters that run the Pod in a user namespace
-# (runner.hostUsers: false with runAsUser 0), where container root is an
-# unprivileged host user. Build your own image FROM this one to add toolchains.
+# debian:trixie-slim, git, openssh-client, manifest-verified claude binary.
+# User runner (uid 1000, the chart's fsGroup) owns /home/runner, where the
+# chart mounts the per-session PVC. mise and uv install tooling without root.
+# Build FROM this image to add toolchains.
 
 ARG CLAUDE_CODE_VERSION=2.1.270
 ARG MISE_VERSION=v2026.9.9

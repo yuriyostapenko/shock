@@ -1,15 +1,12 @@
 {{- $mode := .Values.network.mode -}}
 {{- $n := .Values.network -}}
-{{- /* A leading "*." means every subdomain and becomes Cilium's multilevel "**."
-     in both toFQDNs and serverNames. */}}
 {{- $fqdns := include "shock.fqdnEntries" . | fromJsonArray -}}
 {{- $components := list "runner" "orchestrator" "session-controller" -}}
 {{- if eq $mode "cilium" }}
 {{- range $component := $components }}
 {{- $labels := dict "root" $ "component" $component }}
 ---
-# Default-deny egress for {{ $component }} pods of this release, selected by
-# the release-scoped selector labels so a co-resident release is unaffected.
+# Default-deny egress for this release's {{ $component }} pods.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -54,10 +51,7 @@ spec:
         - ports:
             - port: {{ .port | quote }}
               protocol: TCP
-          {{- /* CDN addresses are shared between customers, so a resolved IP
-               alone also admits every other name on it. With enforceSNI the TLS
-               handshake must name a host matching this entry; serverNames takes
-               the same patterns as toFQDNs. */}}
+          {{- /* SNI must match: CDN addresses are shared between customers. */}}
           {{- if $n.enforceSNI }}
           serverNames:
             - {{ .pattern | quote }}
@@ -71,8 +65,8 @@ spec:
 {{- range $component := $components }}
 {{- $labels := dict "root" $ "component" $component }}
 ---
-# Plain NetworkPolicy: no FQDN filtering is possible, so egress is allowed to
-# any address on the allowed ports except the metadata endpoint (README).
+# Plain NetworkPolicy cannot filter by name: any address on the allowed ports
+# except the metadata endpoint.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

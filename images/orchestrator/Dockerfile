@@ -1,17 +1,9 @@
 # syntax=docker/dockerfile:1.7
-# One image serves the orchestrator, the spawn-runner hook and the session
-# controller: `claude` for the orchestrator process, `shock` for the hook and
-# controller, and /hooks/spawn-runner as a symlink to `shock`, which runs the
-# hook when invoked under that name.
-#
-# The build stage bind-mounts the build context, .git included, so the Go
-# toolchain stamps the module version, commit and time into `shock`
-# (-buildvcs=true fails the build if it cannot). `shock version` reports them.
-#
-# The runtime is gcr.io/distroless/base-debian13:nonroot: glibc, OpenSSL, CA
-# certificates and tzdata, user 65532, /home/nonroot and /tmp writable. The
-# native claude binary comes from the Claude Code release location
-# (https://code.claude.com/docs/en/self-hosted-environments-deploy#build-the-runner-image).
+# Orchestrator, spawn-runner hook and session controller in one image:
+# `claude` runs the orchestrator, `shock` the controller, and
+# /hooks/spawn-runner is a symlink to `shock` that dispatches on argv[0].
+# The build stage bind-mounts the context incl. .git so -buildvcs stamps
+# version, commit and time (`shock version`). Runtime: distroless base-debian13.
 
 ARG GO_VERSION=1.27
 ARG CLAUDE_CODE_VERSION=2.1.270

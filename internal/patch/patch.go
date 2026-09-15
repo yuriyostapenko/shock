@@ -1,10 +1,6 @@
-// Package patch builds the conditional mutations every SHOCK lifecycle write
-// uses (spec section 6, concurrency protocol): a JSON merge patch that carries
-// only the intended field changes and pins both metadata.resourceVersion and
-// metadata.uid of the object that was read. A stale resourceVersion yields
-// 409 Conflict; a different UID (the object was recreated) yields 422 because
-// uid is immutable; a missing object yields 404. Callers re-read and recompute
-// on any of those, never replaying the old payload.
+// Package patch builds JSON merge patches pinned to the read object's
+// resourceVersion and uid (spec section 6): a stale read yields 409, a
+// recreated object 422, a missing one 404. Callers re-read and recompute.
 package patch
 
 import (
@@ -53,9 +49,7 @@ func Optimistic(orig, mutated client.Object) (client.Patch, error) {
 	return client.RawPatch(types.MergePatchType, out), nil
 }
 
-// IsStale reports whether err means the read the patch was computed from is
-// no longer current: conflict, immutable-field violation (UID changed) or
-// the object having disappeared.
+// IsStale reports whether err means the read is no longer current.
 func IsStale(err error) bool {
 	return apierrors.IsConflict(err) || apierrors.IsInvalid(err) || apierrors.IsNotFound(err)
 }

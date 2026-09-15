@@ -37,8 +37,7 @@ jobs:
             echo "tag $tag does not point at a commit on main" >&2; exit 1
           fi
           version="${tag#v}"
-          # The module path has no /vN suffix, so Go only stamps tags with major 0 or 1
-          # as the module version; anything higher would silently become a pseudo-version.
+          # Without a /vN module suffix Go stamps only major 0 or 1 tags as the version.
           if (( BASH_REMATCH[1] > 1 )); then
             echo "tag $tag: major versions above 1 need a /v${BASH_REMATCH[1]} module path suffix (go.mod) first" >&2; exit 1
           fi
@@ -96,8 +95,7 @@ jobs:
       - uses: sigstore/cosign-installer@v4.1.2
       - name: sign image (keyless)
         run: cosign sign --yes "ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.name }}@${{ steps.build.outputs.digest }}"
-      # GitHub build provenance is offered for public repositories on every
-      # current plan and for private ones on Enterprise Cloud only.
+      # Build provenance: public repositories, or private on Enterprise Cloud.
       - uses: actions/attest-build-provenance@v4.2.2
         if: github.event.repository.private == false
         with:

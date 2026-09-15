@@ -1,8 +1,5 @@
-// Package chart renders charts/shock with helm and checks the pieces the Go
-// compiler cannot see: the sandbox-template ConfigMap must strict-decode into
-// the typed v1beta1 Sandbox and satisfy the template contract, forced fields
-// must survive a hostile runner.podTemplate, and chart-level validation must
-// fail loudly. Requires `helm` on PATH.
+// Package chart renders charts/shock with helm and checks what the compiler
+// cannot: the template contract, forced fields, validation. Needs helm.
 package chart
 
 import (
