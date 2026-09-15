@@ -88,11 +88,11 @@ const (
 	// Suspended Sandbox before Wake installs a real order. It is never created.
 	PlaceholderSecretName = "shock-placeholder-never-materialized"
 
-	sandboxPrefix    = "cs"  // Claude session
-	prewarmPrefix    = "pw"  // pre-warm
-	secretPrefix     = "wo-" // work order
-	maxNameLen       = 63    // Sandbox, Pod and pre-warm Job names stay DNS labels
-	maxReleaseLen    = 24    // release part of a scoped name, before "-cs-"
+	sandboxPrefix    = "cs" // Claude session: Sandbox names
+	prewarmPrefix    = "pw" // pre-warm: batch/v1 Job names
+	secretPrefix     = "wo" // work order: Secret names
+	maxNameLen       = 63   // Sandbox, Pod and pre-warm Job names stay DNS labels
+	maxReleaseLen    = 24   // release part of a scoped name, before "-cs-"
 	hashSuffixLength = 8
 )
 
@@ -157,7 +157,7 @@ func WorkOrderSecretName(release, sessionID, sandboxUID, orderID string) string 
 	for _, part := range []string{release, sessionID, sandboxUID, orderID} {
 		_, _ = fmt.Fprintf(h, "%d:%s", len(part), part)
 	}
-	return secretPrefix + hex.EncodeToString(h.Sum(nil))
+	return secretPrefix + "-" + hex.EncodeToString(h.Sum(nil))
 }
 
 // LabelValue returns v when it is a valid Kubernetes label value, otherwise a
