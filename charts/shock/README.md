@@ -14,15 +14,22 @@ survives sleep. Runner compute scales to zero between messages.
 
 ## Prerequisites
 
+Required:
+
 | Requirement | Notes |
 | --- | --- |
 | Kubernetes `>= 1.35` | Derived from agent-sandbox v1.0.2's `k8s.io/*` v0.37 pin minus two minors. Older clusters may work but are untested and unsupported. |
 | [agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) controller, tested range **v1.0.2** | Install from the upstream release manifests. This chart never renders its CRDs or controller. Until the CRD is served the session controller stays alive but not ready and the hook exits 1 (retryable). |
 | A Claude self-hosted environment | Create it on the Cloud environments admin page and store the environment key in a Secret (key `environment-secret`). |
 | Persistent storage for per-session PVCs | Default access mode `ReadWriteOncePod` (needs a CSI driver). Immutable per session after creation. |
-| Cilium (default `network.mode: cilium`) | Or set `network.mode: kubernetes` (no FQDN filtering) or `none`. |
-| Prometheus Operator (default `monitoring.enabled: true`) | PodMonitor and PrometheusRule CRDs. Set `monitoring.enabled: false` otherwise. |
 | The SHOCK image and a runner image | Both published by the release; see below. |
+
+Optional, recommended:
+
+| Component | Why | Without it |
+| --- | --- | --- |
+| [Cilium](https://cilium.io) (default `network.mode: cilium`) | Default-deny egress by host name with TLS SNI enforcement; the only mode that limits runners to an allow list. Tested with 1.20. | `network.mode: kubernetes` renders plain NetworkPolicy (ports only, any address), `none` renders nothing. |
+| [Prometheus Operator](https://prometheus-operator.dev) (default `monitoring.enabled: true`) | PodMonitor scraping all three components and the alert rules for stale polls, failed spawns and stranded sessions. | Set `monitoring.enabled: false`, or the install fails on the missing CRDs. |
 
 ## Install
 

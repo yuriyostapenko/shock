@@ -10,10 +10,10 @@ scales to zero between messages.
 **Status: first implementation.** The chart, the `shock` binary (hook and
 session controller) and the image build are in this repository. Releases are
 cut from `vX.Y.Z` tags and publish the image, the chart as an OCI artifact and a
-GitHub Release together; see [CONTRIBUTING.md](CONTRIBUTING.md#releasing). The design has
-been validated against the upstream agent-sandbox controller in kind and
-against a real API server in envtest, but not yet against a live Claude
-self-hosted environment (see [Validation](#validation)).
+GitHub Release together; see [CONTRIBUTING.md](CONTRIBUTING.md#releasing). Validated
+against the upstream agent-sandbox controller in kind, against a real API
+server in envtest, and in a live run against a Claude self-hosted environment
+(see [Validation](#validation)).
 
 ## Design
 
@@ -43,6 +43,14 @@ operations document.
 - Storage for per-session PVCs; the default uses `ReadWriteOncePod`.
 - A runner image; the chart defaults to the released `shock-runner` image, and
   the chart README documents the contract for bringing your own.
+
+Optional, recommended:
+
+- Cilium, for the default `network.mode: cilium`: default-deny egress by host
+  name with TLS SNI enforcement. Without it, `kubernetes` mode filters by port
+  only and `none` renders no policy.
+- Prometheus Operator, for the default `monitoring.enabled: true`: PodMonitor
+  and alert rules. Set it to `false` on clusters without the CRDs.
 
 ## Repository
 
