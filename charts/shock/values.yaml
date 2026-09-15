@@ -172,11 +172,47 @@ network:
   # without FQDN filtering (documented gap). none: render nothing.
   mode: cilium
   # host or host:port (443 default). One list for every runner egress
-  # destination: Anthropic, git hosts, package registries or mirrors.
-  # Full current list: https://code.claude.com/docs/en/self-hosted-environments-deploy#network-requirements
+  # destination: Anthropic, git hosts, package registries or mirrors. Exact
+  # names are preferred: enforceSNI applies to them only.
+  # Anthropic's list: https://code.claude.com/docs/en/self-hosted-environments-deploy#network-requirements
+  # The rest is what the default runner image's tooling (mise, uv, npm, dotnet)
+  # fetches from; trim it for a different image or a mirror.
   allowedFQDNs:
+    # Anthropic: control plane, inference, git proxy, plugin and docs lookups
     - api.anthropic.com
+    - downloads.claude.ai
+    - storage.googleapis.com
+    - code.claude.com
+    - claude.com
+    # GitHub: clones without the git proxy, API lookups and release assets
     - github.com
+    - api.github.com
+    - codeload.github.com
+    - raw.githubusercontent.com
+    - objects.githubusercontent.com
+    - release-assets.githubusercontent.com
+    - github-releases.githubusercontent.com
+    # mise: version and JVM metadata
+    - mise.jdx.dev
+    - mise-versions.jdx.dev
+    - mise-java.jdx.dev
+    # Node.js
+    - nodejs.org
+    - registry.npmjs.org
+    # Python (uv, pip; CPython builds come from GitHub release assets)
+    - pypi.org
+    - files.pythonhosted.org
+    - downloads.python.org
+    # Go
+    - go.dev
+    - dl.google.com
+    - proxy.golang.org
+    - sum.golang.org
+    # .NET SDKs and NuGet
+    - builds.dotnet.microsoft.com
+    - dotnet.microsoft.com
+    - dot.net
+    - api.nuget.org
   dns:
     namespace: kube-system
     podLabels:

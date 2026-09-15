@@ -183,7 +183,7 @@ types and enums. The load-bearing ones:
 | `runner.storage.accessMode` | `ReadWriteOncePod` | Immutable per session. Decide before first install. |
 | `runner.instructions` | environment notes | Markdown mounted at `/etc/claude-code/CLAUDE.md` in every runner Pod, Claude Code's managed-policy instructions: what Claude should know about this runner (persistent home, root-free installs, git proxy). Empty mounts nothing. |
 | `runner.podTemplate` | `{}` | Deep-merged over the rendered pod template (maps merge, lists replace). |
-| `network.allowedFQDNs` | `api.anthropic.com`, `github.com` | `host` or `host:port`. One list for Anthropic, git hosts and registries. |
+| `network.allowedFQDNs` | Anthropic hosts plus the default image's toolchain hosts (GitHub, mise, Node, Python, Go, .NET) | `host` or `host:port`. One list for every runner egress destination; see values.yaml for the grouped default. |
 | `network.enforceSNI` | `true` | cilium mode: TLS to an exact `allowedFQDNs` entry must carry that host as SNI. Wildcard entries are matched by address only. |
 | `network.mode` | `cilium` | `kubernetes` renders plain NetworkPolicy without FQDN rules; `none` renders nothing. |
 
