@@ -258,6 +258,9 @@ runner:
   extraEnv: []                  # e.g. CLAUDE_ENV_FILE, mirror URLs
   extraVolumes: []              # e.g. registry-credentials Secret for the wrapper ([section 9](#9-registry-credentials-npm--nuget--docker))
   extraVolumeMounts: []
+  instructions: |               # rendered into a ConfigMap and mounted read-only at
+    # This runner environment    # /etc/claude-code/CLAUDE.md, Claude Code's managed-policy
+    ...                          # instructions loaded into every session; "" mounts nothing
   podTemplate: {}               # strategic-merged into the Sandbox podTemplate by Helm;
                                 # the hook forces the load-bearing fields afterwards (section 6)
 network:
