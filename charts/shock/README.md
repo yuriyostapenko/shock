@@ -216,12 +216,13 @@ the dedicated values (`runner.resources`, `runner.extraEnv`, `runner.extraVolume
 
 - Dedicate the namespace to SHOCK. The hook's Role grants `secrets create` and
   `sandboxes create/patch` namespace-wide because RBAC cannot prefix-match names.
-- Sandbox names are `cs-<sanitized session id>` (RFC 1123, 46 chars, plus an
-  8-char hash when sanitizing or truncating changed the id). A session belongs
-  to exactly one release: two releases serving the same Anthropic environment in
-  one namespace is a misconfiguration and the hook refuses a Sandbox labeled for
-  another release with exit 2. Two releases serving different environments can
-  share a namespace; every selector includes `app.kubernetes.io/instance`.
+- Sandbox names are `<release>-cs-<sanitized session id>` (RFC 1123, at most 63
+  chars, plus an 8-char hash when sanitizing or truncating changed the id), so
+  releases never collide on names. A session still belongs to exactly one
+  release: two releases serving the same Anthropic environment in one namespace
+  is a misconfiguration and the hook refuses a Sandbox labeled for another
+  release with exit 2. Two releases serving different environments can share a
+  namespace; every selector includes `app.kubernetes.io/instance`.
 - Work-order Secrets are `wo-<sha256(release, session, Sandbox UID, order)>`,
   immutable, owned by the Sandbox (non-controller, `blockOwnerDeletion: false`).
   One Secret per attempted order lives until the Sandbox is collected; size

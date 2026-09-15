@@ -22,7 +22,7 @@ import (
 func getSandbox(t *testing.T, c client.Client, session string) *sandboxv1beta1.Sandbox {
 	t.Helper()
 	sb := &sandboxv1beta1.Sandbox{}
-	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "runners", Name: naming.SandboxName(session)}, sb); err != nil {
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "runners", Name: naming.SandboxName(testRelease, session)}, sb); err != nil {
 		t.Fatalf("get sandbox: %v", err)
 	}
 	return sb
@@ -289,7 +289,7 @@ func TestSameAttemptDifferentOrderIsProtocolError(t *testing.T) {
 func TestDeletingSandboxIsRetryable(t *testing.T) {
 	now := metav1.Now()
 	sb := &sandboxv1beta1.Sandbox{ObjectMeta: metav1.ObjectMeta{
-		Name: naming.SandboxName("session_01TEST"), Namespace: "runners",
+		Name: naming.SandboxName(testRelease, "session_01TEST"), Namespace: "runners",
 		DeletionTimestamp: &now, Finalizers: []string{"test/keep"},
 		Labels: map[string]string{naming.LabelPartOf: naming.PartOf, naming.LabelInstance: testRelease, naming.LabelSessionID: "session_01TEST"},
 	}}
@@ -306,7 +306,7 @@ func TestDeletingSandboxIsRetryable(t *testing.T) {
 
 func TestIdentityMismatchIsNonRetryable(t *testing.T) {
 	sb := &sandboxv1beta1.Sandbox{ObjectMeta: metav1.ObjectMeta{
-		Name: naming.SandboxName("session_01TEST"), Namespace: "runners",
+		Name: naming.SandboxName(testRelease, "session_01TEST"), Namespace: "runners",
 		Labels: map[string]string{naming.LabelPartOf: naming.PartOf, naming.LabelInstance: "other-release", naming.LabelSessionID: "session_01TEST"},
 	}}
 	c := newFakeClient(t, sb)

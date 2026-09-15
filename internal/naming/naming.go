@@ -88,9 +88,11 @@ const (
 	// Suspended Sandbox before Wake installs a real order. It is never created.
 	PlaceholderSecretName = "shock-placeholder-never-materialized"
 
-	sandboxPrefix    = "cs-" // Claude session
+	sandboxPrefix    = "cs"  // Claude session
+	prewarmPrefix    = "pw"  // pre-warm
 	secretPrefix     = "wo-" // work order
-	maxSanitizedLen  = 46
+	maxNameLen       = 63    // Sandbox, Pod and pre-warm Job names stay DNS labels
+	maxReleaseLen    = 24    // release part of a scoped name, before "-cs-"
 	hashSuffixLength = 8
 )
 
@@ -104,19 +106,41 @@ func SelectorLabels(component, release string) map[string]string {
 	}
 }
 
-// SandboxName derives the Sandbox name from a raw Claude session id:
-// "cs-" + RFC 1123 sanitized id, truncated to 46 chars, plus "-<8-char fnv
-// hash of the raw id>" whenever sanitizing or truncating changed the id.
-func SandboxName(sessionID string) string {
-	sanitized, altered := sanitizeRFC1123(sessionID)
-	if len(sanitized) > maxSanitizedLen {
-		sanitized = strings.TrimRight(sanitized[:maxSanitizedLen], "-")
+// SandboxName derives the Sandbox name for a Claude session of a release:
+// "<release>-cs-<session-id>", release-scoped so two releases offered the same
+// session in one namespace never collide. Both parts are RFC 1123 sanitized;
+// the release part is cut to 24 chars, the id part to what fits in 63 with an
+// "-<8-char fnv hash of the raw id>" suffix, appended whenever sanitizing or
+// truncating changed the id.
+func SandboxName(release, sessionID string) string {
+	return scopedName(release, sandboxPrefix, sessionID)
+}
+
+// PrewarmJobName derives the pre-warm Job name for an order of a release:
+// "<release>-pw-<order-id>", built like SandboxName.
+func PrewarmJobName(release, orderID string) string {
+	return scopedName(release, prewarmPrefix, orderID)
+}
+
+func scopedName(release, kind, raw string) string {
+	rel, _ := sanitizeRFC1123(release)
+	if len(rel) > maxReleaseLen {
+		rel = strings.TrimRight(rel[:maxReleaseLen], "-")
+	}
+	prefix := kind + "-"
+	if rel != "" {
+		prefix = rel + "-" + prefix
+	}
+	maxID := maxNameLen - len(prefix) - 1 - hashSuffixLength
+	sanitized, altered := sanitizeRFC1123(raw)
+	if len(sanitized) > maxID {
+		sanitized = strings.TrimRight(sanitized[:maxID], "-")
 		altered = true
 	}
 	if altered || sanitized == "" {
-		return sandboxPrefix + sanitized + "-" + fnvHash(sessionID)
+		return prefix + sanitized + "-" + fnvHash(raw)
 	}
-	return sandboxPrefix + sanitized
+	return prefix + sanitized
 }
 
 // PVCName is the PVC name the sandbox controller derives for a Sandbox.

@@ -3,7 +3,6 @@ package hook
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -31,7 +30,7 @@ func (h *Hook) runPreWarm(ctx context.Context, req Request) error {
 	if err != nil {
 		return err
 	}
-	jobName := "pw-" + strings.TrimPrefix(naming.SandboxName(req.OrderID), "cs-")
+	jobName := naming.PrewarmJobName(h.Config.Release, req.OrderID)
 	secretName := naming.WorkOrderSecretName(h.Config.Release, "prewarm", "", req.OrderID)
 
 	pt := tmpl.Spec.PodTemplate

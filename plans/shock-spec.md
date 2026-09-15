@@ -276,9 +276,10 @@ Ship `values.schema.json` covering every key above (types, required, enums). Lin
 
 ## 5. Naming and metadata conventions (normative)
 
-- Sandbox name: `cs-<sanitized-session-id>` (`cs` for Claude session; the control plane's ids
-  arrive as `cse_...`); sanitize to RFC 1123 (lowercase, `[a-z0-9-]`),
-  truncate to 46 chars, suffix `-<8-char fnv hash of raw id>` when truncated or altered.
+- Sandbox name: `<release>-cs-<sanitized-session-id>` (`cs` for Claude session; the control
+  plane's ids arrive as `cse_...`). Both parts RFC 1123 sanitized (lowercase, `[a-z0-9-]`); the
+  release part cut to 24 chars, the id part to what fits in 63 with a `-<8-char fnv hash of raw
+  id>` suffix, appended when the id was truncated or altered. Pre-warm Jobs: `<release>-pw-<order-id>`.
 - Work-order Secret name: `wo-<sha256(release, session-id, Sandbox UID, order-id)>` (`wo` for work order) using the full
   lowercase hex digest of an unambiguous length-prefixed encoding. Include the Sandbox UID so
   recreation cannot reuse a Secret owned by a deleted Sandbox. Set `immutable: true`, key
@@ -325,10 +326,11 @@ Ship `values.schema.json` covering every key above (types, required, enums). Lin
   These are separate: labels on a Sandbox CR are **not** propagated to its Pod. Anything that
   selects pods (PodMonitor, NetworkPolicy) sees only the podTemplate set.
 - **Object names must be release-scoped too.** Labels alone do not make two releases safe in one
-  namespace: `cs-<session-id>` collides if two releases are
-  offered the same session. Order Secret names already hash the release and Sandbox UID.
-  Prefix Sandbox names with the release fullname, or document
-  that a given session belongs to exactly one release. Decide before first install — the Sandbox
+  namespace: a bare `cs-<session-id>` would collide if two releases were
+  offered the same session. Order Secret names hash the release and Sandbox UID, and Sandbox
+  and pre-warm Job names carry the release name as prefix (decided 2026-09-15; the first
+  implementation shipped bare `cs-` names, so a release upgraded across that change creates
+  new Sandboxes for existing sessions and GC reaps the old ones). The Sandbox
   name is the PVC name stem and cannot be changed for an existing session.
   Never label/annotate with the account **email** (PII); use the stable account ID.
 - Annotations on Sandbox:

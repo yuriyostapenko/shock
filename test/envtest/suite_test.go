@@ -156,7 +156,7 @@ func req(order string, attempt int64, session string) hook.Request {
 func get(t *testing.T, ctx context.Context, c client.Client, ns, session string) *sandboxv1beta1.Sandbox {
 	t.Helper()
 	sb := &sandboxv1beta1.Sandbox{}
-	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: naming.SandboxName(session)}, sb); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: naming.SandboxName(release, session)}, sb); err != nil {
 		t.Fatalf("get sandbox: %v", err)
 	}
 	return sb

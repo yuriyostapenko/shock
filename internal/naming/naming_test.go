@@ -10,37 +10,54 @@ var dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 func TestSandboxName(t *testing.T) {
 	cases := []struct {
-		in       string
-		wantHash bool
+		release, in string
+		wantHash    bool
 	}{
-		{"abc123", false},
-		{"session_01hxyz", true},        // underscore altered
-		{"Session-ABC", true},           // case altered
-		{strings.Repeat("a", 60), true}, // truncated
-		{"", true},
-		{"--weird__id--", true},
+		{"shock", "abc123", false},
+		{"shock", "session_01hxyz", true},        // underscore altered
+		{"shock", "Session-ABC", true},           // case altered
+		{"shock", strings.Repeat("a", 60), true}, // truncated
+		{"shock", "", true},
+		{"shock", "--weird__id--", true},
+		{strings.Repeat("r", 40), strings.Repeat("s", 60), true}, // both parts cut
+		{"Rel_Name", "abc", false},                               // release sanitized, id untouched
+		{"", "abc", false},                                       // no release part
 	}
 	for _, c := range cases {
-		got := SandboxName(c.in)
-		if !strings.HasPrefix(got, "cs-") {
-			t.Errorf("SandboxName(%q) = %q, missing prefix", c.in, got)
+		got := SandboxName(c.release, c.in)
+		rel, _ := sanitizeRFC1123(c.release)
+		if len(rel) > maxReleaseLen {
+			rel = rel[:maxReleaseLen]
+		}
+		wantPrefix := "cs-"
+		if rel != "" {
+			wantPrefix = rel + "-cs-"
+		}
+		if !strings.HasPrefix(got, wantPrefix) {
+			t.Errorf("SandboxName(%q, %q) = %q, want prefix %q", c.release, c.in, got, wantPrefix)
 		}
 		if !dnsLabel.MatchString(got) {
-			t.Errorf("SandboxName(%q) = %q is not a DNS label", c.in, got)
+			t.Errorf("SandboxName(%q, %q) = %q is not a DNS label", c.release, c.in, got)
 		}
-		if len(got) > 3+maxSanitizedLen+1+hashSuffixLength {
-			t.Errorf("SandboxName(%q) = %q too long (%d)", c.in, got, len(got))
+		if len(got) > maxNameLen {
+			t.Errorf("SandboxName(%q, %q) = %q too long (%d)", c.release, c.in, got, len(got))
 		}
 		hasHash := regexp.MustCompile(`-[0-9a-f]{8}$`).MatchString(got)
 		if hasHash != c.wantHash {
-			t.Errorf("SandboxName(%q) = %q, hash suffix = %v, want %v", c.in, got, hasHash, c.wantHash)
+			t.Errorf("SandboxName(%q, %q) = %q, hash suffix = %v, want %v", c.release, c.in, got, hasHash, c.wantHash)
 		}
-		if got != SandboxName(c.in) {
-			t.Errorf("SandboxName(%q) not deterministic", c.in)
+		if got != SandboxName(c.release, c.in) {
+			t.Errorf("SandboxName(%q, %q) not deterministic", c.release, c.in)
 		}
 	}
-	if SandboxName("session_a") == SandboxName("session-a") {
+	if SandboxName("shock", "session_a") == SandboxName("shock", "session-a") {
 		t.Error("distinct raw ids must not collide after sanitizing")
+	}
+	if SandboxName("a", "session-1") == SandboxName("b", "session-1") {
+		t.Error("the same session in two releases must get distinct names")
+	}
+	if got := PrewarmJobName("shock", "order-1"); got != "shock-pw-order-1" {
+		t.Errorf("PrewarmJobName = %q", got)
 	}
 }
 

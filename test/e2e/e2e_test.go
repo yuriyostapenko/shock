@@ -202,7 +202,7 @@ func mustSpawn(t *testing.T, o order) {
 func sandbox(t *testing.T, session string) *sandboxv1beta1.Sandbox {
 	t.Helper()
 	sb := &sandboxv1beta1.Sandbox{}
-	if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: naming.SandboxName(session)}, sb); err != nil {
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: naming.SandboxName(release, session)}, sb); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
@@ -434,7 +434,7 @@ func TestB_Conformance(t *testing.T) {
 	t.Cleanup(func() { _ = c.Delete(context.Background(), sec) })
 	tmpl.Spec.PodTemplate.Spec.Volumes[0].Secret.SecretName = sec.Name
 	tmpl.Spec.OperatingMode = sandboxv1beta1.SandboxOperatingModeRunning
-	tmpl.Name = "cs-conformance"
+	tmpl.Name = naming.SandboxName("conformance", "conf")
 	_ = c.Delete(context.Background(), tmpl)
 	waitFor(t, "old conformance sandbox gone", 2*time.Minute, func() (bool, string) {
 		return apierrors.IsNotFound(c.Get(context.Background(), client.ObjectKeyFromObject(tmpl), &sandboxv1beta1.Sandbox{})), ""
@@ -677,7 +677,7 @@ func TestC_FreshSessionSleepResumeCrash(t *testing.T) {
 		return (f != nil && f.Reason == sandboxv1beta1.SandboxReasonPodFailed) || sb.Spec.OperatingMode == sandboxv1beta1.SandboxOperatingModeSuspended, describe(sb)
 	})
 	waitAsleep(t, session, sleepBudget)
-	marks := readMarks(t, naming.SandboxName(session))
+	marks := readMarks(t, naming.SandboxName(release, session))
 	if !strings.Contains(marks, "ORDER=core-1") || !strings.Contains(marks, "ORDER=core-2") {
 		t.Fatalf("workspace must carry both runs:\n%s", marks)
 	}
@@ -749,7 +749,7 @@ func TestE_ConcurrentSessionsAndAnchors(t *testing.T) {
 	waitObserved(t, "session_e2e_acc_a", "c-a", wakeBudget)
 	waitObserved(t, "session_e2e_acc_b", "c-b", wakeBudget)
 	for _, s := range []string{"session_e2e_acc_a", "session_e2e_acc_b"} {
-		if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: naming.PVCName(naming.SandboxName(s))}, &corev1.PersistentVolumeClaim{}); err != nil {
+		if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: naming.PVCName(naming.SandboxName(release, s))}, &corev1.PersistentVolumeClaim{}); err != nil {
 			t.Fatalf("PVC for %s: %v", s, err)
 		}
 	}
@@ -844,7 +844,7 @@ func TestF_GC(t *testing.T) {
 	if sandbox(t, "session_e2e_acc_b") == nil {
 		t.Fatal("GC deleted a woken session")
 	}
-	if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: naming.PVCName(naming.SandboxName("session_e2e_acc_b"))}, &corev1.PersistentVolumeClaim{}); err != nil {
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: naming.PVCName(naming.SandboxName(release, "session_e2e_acc_b"))}, &corev1.PersistentVolumeClaim{}); err != nil {
 		t.Fatal("PVC of a woken session lost")
 	}
 	waitAsleep(t, "session_e2e_acc_b", 2*time.Minute)

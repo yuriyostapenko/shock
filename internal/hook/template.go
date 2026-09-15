@@ -99,7 +99,7 @@ func ApplyContract(sb *sandboxv1beta1.Sandbox, id Identity, c Contract) error {
 	if sb.Labels[naming.LabelInstance] != id.Release {
 		return fmt.Errorf("sandbox template: metadata.labels[%q]=%q does not match %s=%q", naming.LabelInstance, sb.Labels[naming.LabelInstance], EnvShockRelease, id.Release)
 	}
-	sb.Name = naming.SandboxName(id.SessionID)
+	sb.Name = naming.SandboxName(id.Release, id.SessionID)
 	sb.Namespace = id.Namespace
 	sb.Spec.OperatingMode = sandboxv1beta1.SandboxOperatingModeSuspended
 	// Never set: the sandbox controller short-circuits reconciliation on expiry.

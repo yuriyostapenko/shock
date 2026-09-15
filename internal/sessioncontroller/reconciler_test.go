@@ -48,7 +48,7 @@ func newFixture(t *testing.T, objs ...client.Object) *fixture {
 
 func (f *fixture) reconcile() ctrl.Result {
 	f.t.Helper()
-	res, err := f.rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: naming.SandboxName(session)}})
+	res, err := f.rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: naming.SandboxName(release, session)}})
 	if err != nil {
 		f.t.Fatalf("reconcile: %v", err)
 	}
@@ -57,14 +57,14 @@ func (f *fixture) reconcile() ctrl.Result {
 
 func (f *fixture) reconcileErr() error {
 	f.t.Helper()
-	_, err := f.rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: naming.SandboxName(session)}})
+	_, err := f.rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: naming.SandboxName(release, session)}})
 	return err
 }
 
 func (f *fixture) sandbox() *sandboxv1beta1.Sandbox {
 	f.t.Helper()
 	sb := &sandboxv1beta1.Sandbox{}
-	err := f.client.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: naming.SandboxName(session)}, sb)
+	err := f.client.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: naming.SandboxName(release, session)}, sb)
 	if err != nil {
 		if client.IgnoreNotFound(err) == nil {
 			return nil
@@ -95,7 +95,7 @@ type sbOpt func(*sandboxv1beta1.Sandbox)
 func baseSandbox(mode sandboxv1beta1.SandboxOperatingMode, gen int64, opts ...sbOpt) *sandboxv1beta1.Sandbox {
 	sb := &sandboxv1beta1.Sandbox{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: naming.SandboxName(session), Namespace: namespace, UID: sbUID, Generation: gen, ResourceVersion: "1",
+			Name: naming.SandboxName(release, session), Namespace: namespace, UID: sbUID, Generation: gen, ResourceVersion: "1",
 			Labels: map[string]string{
 				naming.LabelName: naming.ComponentRunner, naming.LabelInstance: release, naming.LabelPartOf: naming.PartOf,
 				naming.LabelSessionID: session,
@@ -137,7 +137,7 @@ func ownedPod(name, order, secret string, phase corev1.PodPhase) *corev1.Pod {
 			Annotations: map[string]string{naming.AnnotationOrderID: order},
 			Labels:      map[string]string{naming.LabelName: naming.ComponentRunner, naming.LabelInstance: release},
 			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: sandboxv1beta1.GroupVersion.String(), Kind: "Sandbox", Name: naming.SandboxName(session), UID: sbUID, Controller: &ctrlTrue,
+				APIVersion: sandboxv1beta1.GroupVersion.String(), Kind: "Sandbox", Name: naming.SandboxName(release, session), UID: sbUID, Controller: &ctrlTrue,
 			}},
 		},
 		Spec:   corev1.PodSpec{Volumes: []corev1.Volume{{Name: naming.WorkOrderVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: secret}}}}},
@@ -168,7 +168,7 @@ func TestSpawnObservationClearsPendingOnOwnedPodAnyPhase(t *testing.T) {
 				withAnn(naming.AnnotationPendingSpawn, "o2"), withAnn(naming.AnnotationPendingSpawnAt, "2026-01-01T00:00:00Z"),
 				withAnn(naming.AnnotationPendingSecret, secret), withAnn(naming.AnnotationAppliedSpawn, "o2"),
 				withAnn(naming.AnnotationLastOrderID, "o2")),
-			ownedPod(naming.SandboxName(session), "o2", secret, phase),
+			ownedPod(naming.SandboxName(release, session), "o2", secret, phase),
 		)
 		f.reconcile()
 		sb := f.sandbox()
@@ -192,7 +192,7 @@ func TestOldPodDoesNotAcknowledgeNewOrder(t *testing.T) {
 		baseSandbox(sandboxv1beta1.SandboxOperatingModeRunning, 3,
 			withAnn(naming.AnnotationPendingSpawn, "o2"), withAnn(naming.AnnotationPendingSecret, newSecret),
 			withAnn(naming.AnnotationAppliedSpawn, "o2"), withAnn(naming.AnnotationLastOrderID, "o2")),
-		ownedPod(naming.SandboxName(session), "o1", oldSecret, corev1.PodRunning),
+		ownedPod(naming.SandboxName(release, session), "o1", oldSecret, corev1.PodRunning),
 	)
 	f.reconcile()
 	if f.sandbox().Annotations[naming.AnnotationPendingSpawn] != "o2" {
@@ -204,7 +204,7 @@ func TestOldPodDoesNotAcknowledgeNewOrder(t *testing.T) {
 			withAnn(naming.AnnotationPendingSpawn, "o2"), withAnn(naming.AnnotationPendingSecret, newSecret),
 			withAnn(naming.AnnotationAppliedSpawn, "o1"), withAnn(naming.AnnotationLastOrderID, "o2"),
 			withConds(cond(sandboxv1beta1.SandboxConditionSuspended, metav1.ConditionFalse, sandboxv1beta1.SandboxReasonSuspendedPodTerminating, 3))),
-		ownedPod(naming.SandboxName(session), "o1", oldSecret, corev1.PodRunning),
+		ownedPod(naming.SandboxName(release, session), "o1", oldSecret, corev1.PodRunning),
 	)
 	f.reconcile()
 	if f.sandbox().Annotations[naming.AnnotationPendingSpawn] != "o2" {
@@ -214,7 +214,7 @@ func TestOldPodDoesNotAcknowledgeNewOrder(t *testing.T) {
 
 func TestUnownedPodDoesNotAcknowledge(t *testing.T) {
 	secret := naming.WorkOrderSecretName(release, session, string(sbUID), "o2")
-	pod := ownedPod(naming.SandboxName(session), "o2", secret, corev1.PodRunning)
+	pod := ownedPod(naming.SandboxName(release, session), "o2", secret, corev1.PodRunning)
 	pod.OwnerReferences[0].UID = "someone-else"
 	f := newFixture(t,
 		baseSandbox(sandboxv1beta1.SandboxOperatingModeRunning, 2,
@@ -425,7 +425,7 @@ func TestGCBlockedByPendingSpawnStaleGenerationAndAge(t *testing.T) {
 // --- Zombie and alarm ---
 
 func TestZombieEmitsOneEventAndNeverDeletes(t *testing.T) {
-	pod := ownedPod(naming.SandboxName(session), "o1", "s", corev1.PodRunning)
+	pod := ownedPod(naming.SandboxName(release, session), "o1", "s", corev1.PodRunning)
 	del := metav1.NewTime(testNow.Add(-10 * time.Minute))
 	pod.DeletionTimestamp = &del
 	pod.Finalizers = []string{"test/keep"}
@@ -449,7 +449,7 @@ func TestZombieEmitsOneEventAndNeverDeletes(t *testing.T) {
 	}
 	// Below threshold: requeue instead of alerting.
 	recent := metav1.NewTime(testNow.Add(-1 * time.Minute))
-	pod2 := ownedPod(naming.SandboxName(session), "o1", "s", corev1.PodRunning)
+	pod2 := ownedPod(naming.SandboxName(release, session), "o1", "s", corev1.PodRunning)
 	pod2.DeletionTimestamp = &recent
 	pod2.Finalizers = []string{"test/keep"}
 	f = newFixture(t, baseSandbox(sandboxv1beta1.SandboxOperatingModeSuspended, 2,
