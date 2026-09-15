@@ -39,7 +39,7 @@ jobs:
           version="${tag#v}"
           # The module path has no /vN suffix, so Go only stamps tags with major 0 or 1
           # as the module version; anything higher would silently become a pseudo-version.
-          if (( ${BASH_REMATCH[1]} > 1 )); then
+          if (( BASH_REMATCH[1] > 1 )); then
             echo "tag $tag: major versions above 1 need a /v${BASH_REMATCH[1]} module path suffix (go.mod) first" >&2; exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
