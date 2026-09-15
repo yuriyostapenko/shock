@@ -7,6 +7,57 @@ self-hosted runners. Each session gets a persistent workspace volume that
 survives suspension and is reused when the session resumes. Runner compute
 scales to zero between messages.
 
+## Getting started
+
+Prerequisites: Kubernetes 1.35+, the [agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox)
+controller, and a Claude self-hosted environment whose key is in a Secret.
+Cilium and Prometheus Operator are optional (see [Requirements](#requirements)).
+
+```sh
+kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.2/sandbox.yaml
+kubectl create namespace claude-runners
+kubectl -n claude-runners create secret generic claude-environment --from-file=environment-secret=./environment-secret
+helm install shock oci://ghcr.io/yuriyostapenko/charts/shock --version X.Y.Z -n claude-runners --set environment.existingSecret=claude-environment
+```
+
+The released chart pins the SHOCK image and the default runner image by digest;
+no image values are needed. The chart [README](charts/shock/README.md) covers
+every value, upgrades and operations.
+
+### Custom runner image
+
+Sessions run in the runner image, so this is where toolchains live. Start from
+the default image and add what your repositories need as root, then switch back
+to the runner user:
+
+```dockerfile
+FROM ghcr.io/yuriyostapenko/shock-runner:X.Y.Z
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends libpq-dev && rm -rf /var/lib/apt/lists/*
+USER 1000
+```
+
+References: [Anthropic's runner image recipe](https://code.claude.com/docs/en/self-hosted-environments-deploy#build-the-runner-image)
+and this repository's [`images/runner/Dockerfile`](images/runner/Dockerfile).
+Whatever the base, the contract is `claude` 2.1.224 or later, `git` 2.32 or
+later, and a non-root user whose home is the PVC mount (`runner.storage.mountPath`)
+with `runner.baseDir` inside it; the chart README's [Images](charts/shock/README.md#images)
+section has the details. Point the chart at your image:
+
+```yaml
+runner:
+  image:
+    repository: registry.example.com/team/claude-runner
+    tag: "2026.09"
+    digest: ""          # optional sha256:... pin
+    pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - name: registry-credentials
+```
+
+Existing sessions keep their current Pod; a new image reaches each session at
+its next spawn, after it sleeps and wakes.
+
 **Status: first implementation.** The chart, the `shock` binary (hook and
 session controller) and the image build are in this repository. Releases are
 cut from `vX.Y.Z` tags and publish the image, the chart as an OCI artifact and a
