@@ -221,9 +221,10 @@ network:
     - api.nuget.org
     # Container registry hosts behind the fronts Anthropic's list names
     # (anthropics/claude-code#71629): layer blobs come from a different host.
+    # ECR Public serves layers from per-distribution *.cloudfront.net hosts;
+    # that wildcard would admit every CloudFront distribution, so it is not here.
     - production.cloudfront.docker.com # Docker Hub layers
     - registry.k8s.io
-    - "*.cloudfront.net" # ECR Public layers; admits every CloudFront distribution
   dns:
     namespace: kube-system
     podLabels:
