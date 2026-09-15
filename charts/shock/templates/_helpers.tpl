@@ -146,7 +146,6 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- else }}
-      command: ["claude"]
       args:
         - self-hosted-runner
         - --capacity

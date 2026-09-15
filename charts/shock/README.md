@@ -79,10 +79,11 @@ without root:
   (`mise use -g node@22`, `mise use -g go@latest`, `mise use -g jq`).
 - `uv` and `uvx` install Python versions and Python tools into `~/.local`.
 
-Everything installed this way lives in the container filesystem and is gone
-when the session's Pod exits; only `/workspace` persists. Point caches at the
-workspace (for example `runner.extraEnv` with `MISE_DATA_DIR=/workspace/.mise`)
-to keep them across a session's sleeps.
+`~/.local`, `~/.cache` and `~/.config` are symlinks into `/workspace`, the
+session's PVC, so runtimes and tools a session installs survive sleep and are
+already there on resume. The image entrypoint creates those directories, then
+runs `claude`; the runner's hard reset on resume touches only the repository
+directory.
 
 `apt` is present but needs root. On clusters that support Pod user namespaces
 (Kubernetes 1.36 GA; containerd 2.0+ or CRI-O 1.25+, kernel 6.3+ with

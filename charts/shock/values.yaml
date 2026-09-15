@@ -95,8 +95,9 @@ runner:
   # Appended to the rendered `claude self-hosted-runner` args, e.g.
   # ["--exec-path", "/opt/claude/wrapper.sh"] for the credentials wrapper.
   extraArgs: []
-  # Replace the entire container command (then `args` is used verbatim and
-  # flags/extraArgs are ignored). Intended for fake runners in e2e tests.
+  # By default the image's entrypoint runs with the rendered args (the default
+  # image and the deploy doc's recipe both end in claude). Set to replace the
+  # command; `args` is then used verbatim and flags/extraArgs are ignored.
   command: []
   args: []
   extraEnv: []
