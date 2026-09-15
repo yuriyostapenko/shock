@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sigs.k8s.io/yaml"
 	"strings"
 	"testing"
 
@@ -19,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	sandboxv1beta1 "sigs.k8s.io/agent-sandbox/api/v1beta1"
+	sigsyaml "sigs.k8s.io/yaml"
 
 	"github.com/yuriyostapenko/shock/internal/hook"
 	"github.com/yuriyostapenko/shock/internal/naming"
@@ -365,7 +365,7 @@ func TestDefaultAllowedFQDNsDisjointFromTrusted(t *testing.T) {
 			AllowedFQDNs []string `json:"allowedFQDNs"`
 		} `json:"network"`
 	}
-	if err := yaml.Unmarshal(valuesRaw, &values); err != nil {
+	if err := sigsyaml.Unmarshal(valuesRaw, &values); err != nil {
 		t.Fatal(err)
 	}
 	if len(values.Network.AllowedFQDNs) == 0 {
