@@ -197,6 +197,9 @@ network:
     # .NET SDK downloads
     - builds.dotnet.microsoft.com
     - download.visualstudio.microsoft.com
+    # Java: Adoptium API, used by Gradle toolchain auto-provisioning and SDKMAN
+    # (mise itself reads mise-java.jdx.dev; Temurin binaries are GitHub assets)
+    - api.adoptium.net
     # Sigstore: cosign keyless verification (Fulcio, Rekor, TUF root)
     - "*.sigstore.dev"
     # Container registry hosts behind the fronts Anthropic's list names
