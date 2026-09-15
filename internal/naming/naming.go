@@ -116,14 +116,7 @@ func SandboxName(release, sessionID string) string {
 }
 
 func scopedName(release, kind, raw string) string {
-	rel, _ := sanitizeRFC1123(release)
-	if len(rel) > maxReleaseLen {
-		rel = strings.TrimRight(rel[:maxReleaseLen], "-")
-	}
-	prefix := kind + "-"
-	if rel != "" {
-		prefix = rel + "-" + prefix
-	}
+	prefix := releasePrefix(release) + kind + "-"
 	maxID := maxNameLen - len(prefix) - 1 - hashSuffixLength
 	sanitized, altered := sanitizeRFC1123(raw)
 	if len(sanitized) > maxID {
@@ -142,15 +135,30 @@ func PVCName(sandboxName string) string {
 }
 
 // WorkOrderSecretName derives the immutable work-order Secret name:
-// "wo-" + full lowercase hex sha256 over a length-prefixed encoding of
-// (release, sessionID, sandboxUID, orderID). Including the Sandbox UID means a
-// recreated Sandbox can never adopt a Secret owned by a deleted one.
+// "<release>-wo-" + full lowercase hex sha256 over a length-prefixed encoding
+// of (release, sessionID, sandboxUID, orderID). The release part is sanitized
+// and cut like SandboxName's so the two read alike; including the Sandbox UID
+// in the hash means a recreated Sandbox can never adopt a Secret owned by a
+// deleted one.
 func WorkOrderSecretName(release, sessionID, sandboxUID, orderID string) string {
 	h := sha256.New()
 	for _, part := range []string{release, sessionID, sandboxUID, orderID} {
 		_, _ = fmt.Fprintf(h, "%d:%s", len(part), part)
 	}
-	return secretPrefix + "-" + hex.EncodeToString(h.Sum(nil))
+	return releasePrefix(release) + secretPrefix + "-" + hex.EncodeToString(h.Sum(nil))
+}
+
+// releasePrefix returns "<sanitized release>-" cut to maxReleaseLen, or "" for
+// an empty release.
+func releasePrefix(release string) string {
+	rel, _ := sanitizeRFC1123(release)
+	if len(rel) > maxReleaseLen {
+		rel = strings.TrimRight(rel[:maxReleaseLen], "-")
+	}
+	if rel == "" {
+		return ""
+	}
+	return rel + "-"
 }
 
 // LabelValue returns v when it is a valid Kubernetes label value, otherwise a

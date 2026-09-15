@@ -481,7 +481,7 @@ func TestRecreatedSandboxCannotAdoptOldSecrets(t *testing.T) {
 	if second.Annotations[naming.AnnotationPendingSecret] == firstSecret {
 		t.Fatal("recreated sandbox adopted a Secret owned by the deleted one")
 	}
-	if !strings.HasPrefix(second.Annotations[naming.AnnotationPendingSecret], "wo-") {
+	if !strings.HasPrefix(second.Annotations[naming.AnnotationPendingSecret], release+"-wo-") {
 		t.Fatal("no secret recorded")
 	}
 }

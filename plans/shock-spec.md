@@ -279,7 +279,8 @@ Ship `values.schema.json` covering every key above (types, required, enums). Lin
   plane's ids arrive as `cse_...`). Both parts RFC 1123 sanitized (lowercase, `[a-z0-9-]`); the
   release part cut to 24 chars, the id part to what fits in 63 with a `-<8-char fnv hash of raw
   id>` suffix, appended when the id was truncated or altered.
-- Work-order Secret name: `wo-<sha256(release, session-id, Sandbox UID, order-id)>` (`wo` for work order) using the full
+- Work-order Secret name: `<release>-wo-<sha256(release, session-id, Sandbox UID, order-id)>` (`wo` for
+  work order; release part sanitized and cut like the Sandbox name's) using the full
   lowercase hex digest of an unambiguous length-prefixed encoding. Include the Sandbox UID so
   recreation cannot reuse a Secret owned by a deleted Sandbox. Set `immutable: true`, key
   `work-order`, and annotations for raw order ID, attempt, and session ID; never log the JWT. Mounted at

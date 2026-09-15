@@ -59,12 +59,15 @@ func TestSandboxName(t *testing.T) {
 }
 
 func TestWorkOrderSecretName(t *testing.T) {
+	if got := WorkOrderSecretName("Rel_1", "sess", "uid-1", "order-1"); !strings.HasPrefix(got, "rel-1-wo-") || len(got) != len("rel-1-wo-")+64 {
+		t.Errorf("secret name must be <release>-wo-<sha256>, got %q", got)
+	}
 	a := WorkOrderSecretName("rel", "sess", "uid-1", "order-1")
 	b := WorkOrderSecretName("rel", "sess", "uid-2", "order-1")
 	if a == b {
 		t.Fatal("secret name must depend on the Sandbox UID")
 	}
-	if !regexp.MustCompile(`^wo-[0-9a-f]{64}$`).MatchString(a) {
+	if !regexp.MustCompile(`^rel-wo-[0-9a-f]{64}$`).MatchString(a) {
 		t.Fatalf("unexpected secret name %q", a)
 	}
 	// Length-prefixed encoding: shifting a boundary must change the digest.

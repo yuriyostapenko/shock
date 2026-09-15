@@ -394,6 +394,9 @@ func TestA_Install(t *testing.T) {
 		run(t, "kubectl", "-n", ns, "create", "secret", "generic", "e2e-environment", "--from-literal=environment-secret=not-a-real-secret")
 	}
 	helmInstall(t)
+	// e2e-setup reloads the controller image under an unchanged tag, which a
+	// helm upgrade alone never rolls out; restart so the suite tests this build.
+	run(t, "kubectl", "-n", ns, "rollout", "restart", "deploy/"+release+"-session-controller")
 	run(t, "kubectl", "-n", ns, "rollout", "status", "deploy/"+release+"-session-controller", "--timeout=120s")
 	// A rerun on the same cluster starts from leftover Sandboxes at later
 	// orders; the suite assumes none exist for its sessions.
@@ -829,7 +832,7 @@ func TestF_GC(t *testing.T) {
 		uids[s.UID] = true
 	}
 	for _, s := range list.Items {
-		if !strings.HasPrefix(s.Name, "wo-") {
+		if !strings.HasPrefix(s.Name, release+"-wo-") {
 			continue
 		}
 		owned := false

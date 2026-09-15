@@ -222,7 +222,7 @@ the dedicated values (`runner.resources`, `runner.extraEnv`, `runner.extraVolume
   is a misconfiguration and the hook refuses a Sandbox labeled for another
   release with exit 2. Two releases serving different environments can share a
   namespace; every selector includes `app.kubernetes.io/instance`.
-- Work-order Secrets are `wo-<sha256(release, session, Sandbox UID, order)>`,
+- Work-order Secrets are `<release>-wo-<sha256(release, session, Sandbox UID, order)>`,
   immutable, owned by the Sandbox (non-controller, `blockOwnerDeletion: false`).
   One Secret per attempted order lives until the Sandbox is collected; size
   Secret quotas accordingly. A recreated Sandbox derives different names and
