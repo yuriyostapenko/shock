@@ -5,11 +5,10 @@
 # against the release manifest, and the doc's system git configuration.
 #
 # The runner user (uid 1000, matching the chart's default fsGroup) owns
-# /workspace and its home. ~/.local, ~/.cache, ~/.config and ~/.npm are
-# symlinks into /workspace, the per-session PVC, so tooling a session installs
-# survives sleep (mise and uv live under ~/.local and ~/.cache); the
-# entrypoint creates those directories before exec'ing claude.
-# Sessions install tooling without root through the preinstalled user-space
+# /workspace and its home. The XDG base directories and the npm cache point
+# into /workspace, the per-session PVC, so tooling a session installs survives
+# sleep: mise and uv keep runtimes, tools, Python installs and caches there.
+# Sessions install tooling without root through those preinstalled user-space
 # managers: mise (runtimes and CLIs) and uv (Python and Python tools). apt is
 # present for clusters that run the Pod in a user namespace
 # (runner.hostUsers: false with runAsUser 0), where container root is an
@@ -50,13 +49,7 @@ RUN apt-get update \
  && groupadd --gid 1000 runner \
  && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash runner \
  && mkdir -p /workspace \
- && ln -s /workspace/.local /home/runner/.local \
- && ln -s /workspace/.cache /home/runner/.cache \
- && ln -s /workspace/.config /home/runner/.config \
- && ln -s /workspace/.npm /home/runner/.npm \
- && chown -R --no-dereference runner:runner /workspace /home/runner \
- && printf '#!/bin/sh\nmkdir -p /workspace/.local/bin /workspace/.cache /workspace/.config /workspace/.npm 2>/dev/null\nexec /usr/local/bin/claude "$@"\n' > /usr/local/bin/runner-entrypoint \
- && chmod 0755 /usr/local/bin/runner-entrypoint
+ && chown -R runner:runner /workspace /home/runner
 COPY --from=fetch --chmod=0755 /out/claude /usr/local/bin/claude
 COPY --from=fetch --chmod=0755 /out/mise-bin /usr/local/bin/mise
 COPY --from=fetch --chmod=0755 /out/uv-bin /usr/local/bin/uv
@@ -64,7 +57,12 @@ COPY --from=fetch --chmod=0755 /out/uvx-bin /usr/local/bin/uvx
 USER 1000
 WORKDIR /workspace
 ENV HOME=/home/runner \
-    PATH=/home/runner/.local/share/mise/shims:/home/runner/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    XDG_DATA_HOME=/workspace/.local/share \
+    XDG_STATE_HOME=/workspace/.local/state \
+    XDG_CONFIG_HOME=/workspace/.config \
+    XDG_CACHE_HOME=/workspace/.cache \
+    NPM_CONFIG_CACHE=/workspace/.npm \
+    PATH=/workspace/.local/share/mise/shims:/workspace/.local/bin:/usr/local/bin:/usr/bin:/bin \
     DISABLE_AUTOUPDATER=1
-ENTRYPOINT ["runner-entrypoint"]
+ENTRYPOINT ["claude"]
 CMD ["self-hosted-runner", "--help"]

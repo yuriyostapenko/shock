@@ -79,13 +79,16 @@ without root:
   (`mise use -g node@22`, `mise use -g go@latest`, `mise use -g jq`).
 - `uv` and `uvx` install Python versions and Python tools into `~/.local`.
 
-`~/.local`, `~/.cache`, `~/.config` and `~/.npm` are symlinks into `/workspace`,
-the session's PVC, so runtimes, tools and package caches a session installs
-(`mise` and `uv` keep theirs under `~/.local` and `~/.cache`) survive sleep and
-are already there on resume. The image entrypoint creates those directories, then
-runs `claude`; the runner's hard reset on resume touches only the repository
-directory. Runtimes execute from the PVC, so the storage class must not mount
-volumes `noexec`.
+The image sets `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CONFIG_HOME`,
+`XDG_CACHE_HOME` and `NPM_CONFIG_CACHE` to paths under `/workspace`, the
+session's PVC, so runtimes, tools and caches a session installs through `mise`,
+`uv` or `npm` survive sleep and are already there on resume. The runner's hard
+reset on resume touches only the repository directory. Runtimes execute from
+the PVC, so the storage class must not mount volumes `noexec`. Tools that
+ignore XDG need their own variable, for example via `runner.extraEnv`:
+`CARGO_HOME=/workspace/.cargo`, `RUSTUP_HOME=/workspace/.rustup`,
+`GOPATH=/workspace/go`, `GRADLE_USER_HOME=/workspace/.gradle`,
+`MAVEN_OPTS=-Dmaven.repo.local=/workspace/.m2`, `NUGET_PACKAGES=/workspace/.nuget/packages`.
 
 `apt` is present but needs root. On clusters that support Pod user namespaces
 (Kubernetes 1.36 GA; containerd 2.0+ or CRI-O 1.25+, kernel 6.3+ with
