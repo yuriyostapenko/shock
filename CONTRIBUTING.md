@@ -38,7 +38,10 @@ them together and re-derive `kubeVersion`.
 
 `make e2e-kind` creates a kind cluster named `shock-e2e`, installs agent-sandbox
 from the upstream release manifest, builds the controller image and runs
-`test/e2e`. `make e2e-teardown` removes the cluster.
+`test/e2e`. `make e2e-teardown` removes the cluster. The same cluster serves as
+a live test bed with the real images and an environment key;
+`hack/live-values.example.yaml` and the "Full-cycle work on a live cluster"
+section of `AGENTS.md` describe the steps.
 
 ## Releasing
 
