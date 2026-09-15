@@ -318,8 +318,8 @@ func (h *Hook) publishNewer(ctx context.Context, log *slog.Logger, sb, tmpl *san
 		}
 		newPT.ObjectMeta.Annotations[naming.AnnotationOrderID] = cur
 	}
-	if curVol := findVolume(&sb.Spec.PodTemplate.Spec, naming.WorkOrderVolumeName); curVol != nil && curVol.Secret != nil {
-		if v := findVolume(&newPT.Spec, naming.WorkOrderVolumeName); v != nil {
+	if curVol := workOrderVolume(&sb.Spec.PodTemplate.Spec); curVol != nil && curVol.Secret != nil {
+		if v := workOrderVolume(&newPT.Spec); v != nil {
 			v.Secret.SecretName = curVol.Secret.SecretName
 		}
 	}

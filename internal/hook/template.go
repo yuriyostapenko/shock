@@ -67,7 +67,7 @@ func ValidateAnchors(sb *sandboxv1beta1.Sandbox) error {
 	if findContainer(&sb.Spec.PodTemplate.Spec, naming.RunnerContainerName) == nil {
 		return fmt.Errorf("sandbox template: required anchor missing: container named %q", naming.RunnerContainerName)
 	}
-	if findVolume(&sb.Spec.PodTemplate.Spec, naming.WorkOrderVolumeName) == nil {
+	if workOrderVolume(&sb.Spec.PodTemplate.Spec) == nil {
 		return fmt.Errorf("sandbox template: required anchor missing: volume named %q", naming.WorkOrderVolumeName)
 	}
 	if len(sb.Spec.VolumeClaimTemplates) == 0 || !hasClaimTemplate(sb, naming.WorkspaceClaimName) {
@@ -135,7 +135,7 @@ func ApplyContract(sb *sandboxv1beta1.Sandbox, id Identity, c Contract) error {
 		runner.Args = withLockToAccount(runner.Args, id.AccountID)
 	}
 
-	wo := findVolume(spec, naming.WorkOrderVolumeName)
+	wo := workOrderVolume(spec)
 	if wo.Secret == nil {
 		wo.VolumeSource = corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{}}
 	}
@@ -181,9 +181,10 @@ func findContainer(spec *corev1.PodSpec, name string) *corev1.Container {
 	return nil
 }
 
-func findVolume(spec *corev1.PodSpec, name string) *corev1.Volume {
+// workOrderVolume returns the pod's work-order volume, or nil.
+func workOrderVolume(spec *corev1.PodSpec) *corev1.Volume {
 	for i := range spec.Volumes {
-		if spec.Volumes[i].Name == name {
+		if spec.Volumes[i].Name == naming.WorkOrderVolumeName {
 			return &spec.Volumes[i]
 		}
 	}

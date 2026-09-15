@@ -856,7 +856,7 @@ environment run still has to confirm hook execution end to end.
    `--release-idle-session-min`, `--kill-session-after-min`, `--exit-if-unused-min`,
    `--push-outcome-on-release`, `--health-port`, `--exec-path`; orchestrator `--hooks-dir`,
    `--environment-secret-file`, `--expected-spawn-seconds`, `--hook-timeout`, `--hook-concurrency`,
-   `--min-idle`, `--health-port`. `--kill-session-after-min` releases rather than terminates on ≥ 2.1.260.
+   `--health-port` (`--min-idle` exists upstream; the chart stopped rendering it on 2026-09-15). `--kill-session-after-min` releases rather than terminates on ≥ 2.1.260.
 6. **kubeVersion**: v1.0.2 pins `k8s.io/*` v0.37.0 → `kubeVersion: ">=1.35.0-0"`.
 7. **Idle-suspend**: v1.0.2 `SandboxSpec` has no auto-suspension field; nothing to opt out of.
    Re-check on every bump.
@@ -870,7 +870,8 @@ controller refuses to act; conditions carry `ObservedGeneration: sandbox.Generat
 `podTemplate` labels propagate to the pod except `agents.x-k8s.io/*` keys.
 
 Decisions taken where the spec left a choice (2026-09-15 addition: the runner image gained a
-default, `images/runner/Dockerfile`, built and pinned by the release; sections 3 and 4 updated): Sandbox names are **not** release-prefixed; a
+default, `images/runner/Dockerfile`, built and pinned by the release; sections 3 and 4 updated): Sandbox and
+work-order Secret names carry the release as prefix (changed 2026-09-15 from bare `cs-`/`wo-`); a
 session belongs to exactly one release and the hook exits 2 on a Sandbox labeled for another
 release. On a higher attempt the hook also installs the current chart pod template (carrying the
 installed order/Secret), so image and flag changes reach sessions at their next spawn without
