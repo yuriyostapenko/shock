@@ -168,7 +168,9 @@
         },
         "metadataCIDR": {"type": "string"},
         "enforceSNI": {"type": "boolean"},
-        "anthropicTrustedDomains": {"type": "boolean"}
+        "anthropicTrustedDomains": {"type": "boolean"},
+        "extraAllowedFQDNs": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9*.-]+(:[0-9]{1,5})?$"}},
+        "excludeFQDNs": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9*.-]+(:[0-9]{1,5})?$"}}
       }
     },
     "monitoring": {

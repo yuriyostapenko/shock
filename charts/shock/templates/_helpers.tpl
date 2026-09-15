@@ -61,11 +61,11 @@ defaultTag, and an empty repository or resolved tag fails the render.
 {{- if or (lt (int $o.expectedSpawnSeconds) 10) (gt (int $o.expectedSpawnSeconds) 3600) -}}
 {{- fail "orchestrator.expectedSpawnSeconds must be within 10..3600" -}}
 {{- end -}}
-{{- if and (ne .Values.network.mode "none") (not .Values.network.anthropicTrustedDomains) -}}
+{{- if ne .Values.network.mode "none" -}}
 {{- $hasAPI := false -}}
-{{- range .Values.network.allowedFQDNs }}{{ if hasPrefix "api.anthropic.com" . }}{{ $hasAPI = true }}{{ end }}{{ end -}}
+{{- range include "shock.fqdnEntries" . | fromJsonArray }}{{ if eq .host "api.anthropic.com" }}{{ $hasAPI = true }}{{ end }}{{ end -}}
 {{- if not $hasAPI -}}
-{{- fail "network.anthropicTrustedDomains is false: network.allowedFQDNs must include api.anthropic.com or the runner cannot reach the control plane" -}}
+{{- fail "the effective egress allow list (allowedFQDNs, the Trusted list, extraAllowedFQDNs minus excludeFQDNs) must include api.anthropic.com or the runner cannot reach the control plane" -}}
 {{- end -}}
 {{- end -}}
 {{- if and (empty .Values.environment.existingSecret) (empty .Values.environment.secretValue) -}}
@@ -81,6 +81,38 @@ defaultTag, and an empty repository or resolved tag fails the render.
 {{- if not (has .Values.network.mode (list "cilium" "kubernetes" "none")) -}}
 {{- fail "network.mode must be cilium, kubernetes or none" -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+The effective egress allow list as a JSON array of fqdnEntry dicts, in order:
+network.allowedFQDNs, Anthropic's Trusted list when anthropicTrustedDomains is
+on, network.extraAllowedFQDNs; then duplicates (same host and port) collapse
+and every entry whose host is named in network.excludeFQDNs is dropped.
+*/}}
+{{- define "shock.fqdnEntries" -}}
+{{- $n := .Values.network -}}
+{{- $entries := list -}}
+{{- range $n.allowedFQDNs }}{{ $entries = append $entries . }}{{ end -}}
+{{- if $n.anthropicTrustedDomains -}}
+{{- range .Files.Lines "files/anthropic-trusted-domains.txt" -}}
+{{- $line := trim . -}}
+{{- if and $line (not (hasPrefix "#" $line)) }}{{ $entries = append $entries $line }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- range $n.extraAllowedFQDNs }}{{ $entries = append $entries . }}{{ end -}}
+{{- $excluded := dict -}}
+{{- range $n.excludeFQDNs }}{{ $_ := set $excluded (index (splitList ":" .) 0) true }}{{ end -}}
+{{- $out := list -}}
+{{- $seen := dict -}}
+{{- range $entries -}}
+{{- $e := include "shock.fqdnEntry" . | fromJson -}}
+{{- $key := printf "%s:%s" $e.host $e.port -}}
+{{- if and (not (hasKey $seen $key)) (not (hasKey $excluded $e.host)) -}}
+{{- $_ := set $seen $key true -}}
+{{- $out = append $out $e -}}
+{{- end -}}
+{{- end -}}
+{{- $out | toJson -}}
 {{- end -}}
 
 {{/*

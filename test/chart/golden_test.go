@@ -344,6 +344,37 @@ func TestAnthropicTrustedDomainsMergeAndToggle(t *testing.T) {
 	}
 }
 
+func TestAllowedFQDNsAppendAndExclude(t *testing.T) {
+	objs, _, err := helmTemplate(t,
+		"--set", "network.extraAllowedFQDNs={git.example.internal,mise.jdx.dev}",
+		"--set", "network.excludeFQDNs={*.amazonaws.com,registry.k8s.io}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pats := fqdnPatterns(t, objs)
+	if pats["git.example.internal"] != 1 {
+		t.Error("extraAllowedFQDNs entry must be appended")
+	}
+	if pats["mise.jdx.dev"] != 1 {
+		t.Error("an extra that duplicates a default must collapse into one rule")
+	}
+	if pats["**.amazonaws.com"] != 0 {
+		t.Error("excludeFQDNs must drop a Trusted-list wildcard written as in the list")
+	}
+	if pats["registry.k8s.io"] != 0 {
+		t.Error("excludeFQDNs must drop a default allowedFQDNs entry")
+	}
+	if pats["api.anthropic.com"] != 1 || pats["ghcr.io"] != 1 {
+		t.Error("unrelated entries must survive an exclude")
+	}
+	if _, _, err := helmTemplate(t, "--set", "network.excludeFQDNs={api.anthropic.com}"); err == nil {
+		t.Error("excluding api.anthropic.com must fail to render")
+	}
+	if _, _, err := helmTemplate(t, "--set", "network.anthropicTrustedDomains=false", "--set", "network.extraAllowedFQDNs={api.anthropic.com}"); err != nil {
+		t.Errorf("api.anthropic.com supplied via extraAllowedFQDNs must satisfy the guard: %v", err)
+	}
+}
+
 func TestDefaultAllowedFQDNsDisjointFromTrusted(t *testing.T) {
 	dir := chartDir(t)
 	raw, err := os.ReadFile(filepath.Join(dir, "files", "anthropic-trusted-domains.txt"))

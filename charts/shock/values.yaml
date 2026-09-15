@@ -217,6 +217,13 @@ network:
   # addresses are shared between customers; SNI enforcement keeps the allow
   # list a list of names. Wildcard entries are enforced as patterns.
   enforceSNI: true
+  # Appended to allowedFQDNs and the Trusted list: your git host, mirrors,
+  # internal services. Use this to add without copying the defaults.
+  extraAllowedFQDNs: []
+  # Hosts removed from the merged list, written as in the lists ("*.amazonaws.com",
+  # "storage.googleapis.com"). Matches entries, not reach: excluding a name that a
+  # remaining wildcard still covers changes nothing.
+  excludeFQDNs: []
 
 monitoring:
   enabled: true

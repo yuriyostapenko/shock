@@ -184,6 +184,8 @@ types and enums. The load-bearing ones:
 | `runner.podTemplate` | `{}` | Deep-merged over the rendered pod template (maps merge, lists replace). |
 | `network.allowedFQDNs` | hosts the Trusted list lacks: Anthropic downloads and docs, GitHub asset and ghcr layer hosts, mise metadata, Go and .NET downloads, registry layer hosts | `host` or `host:port`; a leading `*.` matches every subdomain. This deployment's own list, disjoint from Anthropic's; see values.yaml. |
 | `network.anthropicTrustedDomains` | `true` | Also allow Anthropic's Trusted-level default domains from `files/anthropic-trusted-domains.txt`. |
+| `network.extraAllowedFQDNs` | `[]` | Appended to the merged list: add hosts without copying the defaults. |
+| `network.excludeFQDNs` | `[]` | Hosts dropped from the merged list, written as they appear in it. |
 | `network.enforceSNI` | `true` | cilium mode: TLS to an `allowedFQDNs` entry must carry a matching SNI; wildcard entries are enforced as patterns. |
 | `network.mode` | `cilium` | `kubernetes` renders plain NetworkPolicy without FQDN rules; `none` renders nothing. |
 
@@ -261,8 +263,17 @@ without touching your list. It is broad (`*.amazonaws.com`, `*.googleapis.com`
 and other object stores are on it); set it to `false` for a default-deny
 posture that allows only what you list. The default `allowedFQDNs` holds only
 what Anthropic's list lacks, so with the Trusted list off you list every host
-yourself, and the chart refuses to render unless `api.anthropic.com` is among
-them. Duplicates between the lists collapse into one rule.
+yourself.
+
+Customize without copying: `network.extraAllowedFQDNs` appends (your git host,
+a mirror, internal services) and `network.excludeFQDNs` removes entries from
+the merged result (`*.amazonaws.com` to keep the Trusted list but not object
+stores). Overriding `network.allowedFQDNs` replaces the chart's own list, which
+is Helm's normal list behaviour. Order: `allowedFQDNs`, the Trusted list,
+`extraAllowedFQDNs`, then dedupe, then excludes. Excludes act on entries, not
+reach: removing `storage.googleapis.com` changes nothing while
+`*.googleapis.com` is still listed. Whatever the combination, the chart refuses
+to render unless `api.anthropic.com` remains in the effective list.
 
 `toFQDNs` admits the addresses a name resolved to, and CDN addresses are shared
 between customers: a host that lands on the same address as an allowed one is
