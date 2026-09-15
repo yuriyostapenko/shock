@@ -145,6 +145,7 @@
             "accessMode": {"type": "string", "enum": ["ReadWriteOncePod", "ReadWriteOnce"]}
           }
         },
+        "instructions": {"type": "string"},
         "podTemplate": {"type": "object"}
       }
     },

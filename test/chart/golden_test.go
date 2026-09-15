@@ -327,6 +327,40 @@ func TestEveryObjectCarriesCommonLabelsAndSelectors(t *testing.T) {
 	}
 }
 
+func TestRunnerInstructionsMountedAsManagedClaudeMd(t *testing.T) {
+	objs, _, err := helmTemplate(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := find(objs, "ConfigMap", release+"-shock-runner-instructions")
+	if cm == nil {
+		t.Fatal("runner-instructions ConfigMap not rendered by default")
+	}
+	if text, _, _ := unstructured.NestedString(cm.Object, "data", "CLAUDE.md"); !strings.Contains(text, "persistent disk") {
+		t.Errorf("default instructions missing: %q", text[:min(len(text), 80)])
+	}
+	sb := sandboxTemplate(t, objs)
+	var mounted bool
+	for _, m := range sb.Spec.PodTemplate.Spec.Containers[0].VolumeMounts {
+		if m.Name == "instructions" && m.MountPath == "/etc/claude-code/CLAUDE.md" && m.SubPath == "CLAUDE.md" && m.ReadOnly {
+			mounted = true
+		}
+	}
+	if !mounted {
+		t.Error("instructions must be mounted read-only at /etc/claude-code/CLAUDE.md")
+	}
+	objs, _, err = helmTemplate(t, "--set", "runner.instructions=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if find(objs, "ConfigMap", release+"-shock-runner-instructions") != nil {
+		t.Error("empty instructions must render no ConfigMap")
+	}
+	if strings.Contains(sandboxTemplateRaw(t, objs), "claude-code") {
+		t.Error("empty instructions must mount nothing")
+	}
+}
+
 func TestOrchestratorImageFollowsChartVersion(t *testing.T) {
 	// Defaults: repository from values, tag from appVersion, no digest.
 	objs, _, err := helmTemplate(t)

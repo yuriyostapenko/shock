@@ -140,6 +140,29 @@ runner:
     # Immutable after Sandbox creation: existing sessions keep the mode they
     # were born with. Decide before first install.
     accessMode: ReadWriteOncePod
+  # Environment notes for Claude, mounted read-only at /etc/claude-code/CLAUDE.md
+  # (Claude Code's managed-policy instructions, loaded into every session before
+  # user and project CLAUDE.md files). Keep it short and concrete; an empty string
+  # mounts nothing.
+  instructions: |
+    # This runner environment
+
+    You are running in a Claude Code self-hosted runner managed by SHOCK.
+
+    - Your home directory is a per-session persistent disk. The repository is
+      checked out under `~/workspace/<owner>/<repo>`. Sessions sleep when idle
+      and resume on the same disk: files, installed tools and caches under `~`
+      are still there next time; running processes are not.
+    - You have no root and no `sudo`; `apt-get` does not work. Install tooling
+      in user space instead: `mise use -g node@22`, `mise use -g go@latest`,
+      `mise use -g <tool>` for most CLIs, `uv python install 3.12`,
+      `uv tool install <package>` or `uvx <package>` for Python tools. If a
+      system library is missing, say so rather than trying to install it.
+    - There is no Docker daemon in this environment.
+    - Git reaches GitHub through Anthropic's proxy with the session creator's
+      credentials. Push work to `claude/*` branches.
+    - `/etc/claude-code` is read-only. Everything under `~` is yours to change.
+
   # Deep-merged over the rendered Sandbox podTemplate by Helm (maps merge,
   # lists replace). The hook then forces the template contract fields; see README.
   podTemplate: {}

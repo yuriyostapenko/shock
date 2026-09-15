@@ -206,6 +206,12 @@ spec:
         - name: work-order
           mountPath: /var/run/claude/work-order
           readOnly: true
+        {{- if $r.instructions }}
+        - name: instructions
+          mountPath: /etc/claude-code/CLAUDE.md
+          subPath: CLAUDE.md
+          readOnly: true
+        {{- end }}
         {{- with $r.extraVolumeMounts }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -213,6 +219,11 @@ spec:
     - name: work-order
       secret:
         secretName: shock-placeholder-never-materialized
+    {{- if $r.instructions }}
+    - name: instructions
+      configMap:
+        name: {{ include "shock.componentName" (dict "root" . "component" "runner-instructions") }}
+    {{- end }}
     {{- with $r.extraVolumes }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
