@@ -184,6 +184,7 @@ types and enums. The load-bearing ones:
 | `runner.instructions` | environment notes | Markdown mounted at `/etc/claude-code/CLAUDE.md` in every runner Pod, Claude Code's managed-policy instructions: what Claude should know about this runner (persistent home, root-free installs, git proxy). Empty mounts nothing. |
 | `runner.podTemplate` | `{}` | Deep-merged over the rendered pod template (maps merge, lists replace). |
 | `network.allowedFQDNs` | `api.anthropic.com`, `github.com` | `host` or `host:port`. One list for Anthropic, git hosts and registries. |
+| `network.enforceSNI` | `true` | cilium mode: TLS to an exact `allowedFQDNs` entry must carry that host as SNI. Wildcard entries are matched by address only. |
 | `network.mode` | `cilium` | `kubernetes` renders plain NetworkPolicy without FQDN rules; `none` renders nothing. |
 
 ### `runner.podTemplate` and the template contract
@@ -249,6 +250,12 @@ for every `network.allowedFQDNs` entry on its port (443 default), an explicit
 L3 deny for `169.254.169.254/32`, and `kube-apiserver` for the orchestrator and
 session controller. This governs egress from the Pod; image pulls are the
 kubelet's traffic and do not belong here.
+
+`toFQDNs` admits the addresses a name resolved to, and CDN addresses are shared
+between customers: a host that lands on the same address as an allowed one is
+reachable by address. With `network.enforceSNI` (default) every exact entry also
+carries `serverNames`, so the TLS handshake must name that host. Wildcard
+entries cannot be expressed as SNI and stay address-based; prefer exact names.
 
 `kubernetes` mode renders plain `NetworkPolicy`: DNS plus any address on the
 allowed ports except the metadata CIDR. There is no FQDN filtering; enforce host

@@ -167,7 +167,8 @@
             "podLabels": {"$ref": "#/$defs/stringMap"}
           }
         },
-        "metadataCIDR": {"type": "string"}
+        "metadataCIDR": {"type": "string"},
+        "enforceSNI": {"type": "boolean"}
       }
     },
     "monitoring": {

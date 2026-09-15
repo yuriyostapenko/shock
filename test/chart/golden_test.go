@@ -7,6 +7,7 @@ package chart
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -246,6 +247,48 @@ func TestChartValidation(t *testing.T) {
 	_, stderr, err = helmTemplate(t, "--set", "runner.baseDir=/elsewhere")
 	if err == nil || !strings.Contains(stderr, "runner.baseDir") {
 		t.Fatalf("baseDir outside the mount path must fail: %v %s", err, stderr)
+	}
+}
+
+func TestCiliumRunnerPolicyEnforcesSNI(t *testing.T) {
+	objs, _, err := helmTemplate(t, "--set", "network.allowedFQDNs={api.anthropic.com,*.githubusercontent.com}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cnp := find(objs, "CiliumNetworkPolicy", release+"-shock-runner")
+	if cnp == nil {
+		t.Fatal("runner CiliumNetworkPolicy not rendered")
+	}
+	egress, _, _ := unstructured.NestedSlice(cnp.Object, "spec", "egress")
+	var exact, wildcard bool
+	for _, e := range egress {
+		rule, _ := e.(map[string]any)
+		fqdns, _, _ := unstructured.NestedSlice(rule, "toFQDNs")
+		if len(fqdns) == 0 {
+			continue
+		}
+		ports, _, _ := unstructured.NestedSlice(rule, "toPorts")
+		names, _, _ := unstructured.NestedStringSlice(ports[0].(map[string]any), "serverNames")
+		sel := fqdns[0].(map[string]any)
+		switch {
+		case sel["matchName"] == "api.anthropic.com":
+			exact = len(names) == 1 && names[0] == "api.anthropic.com"
+		case sel["matchPattern"] == "*.githubusercontent.com":
+			wildcard = len(names) == 0
+		}
+	}
+	if !exact {
+		t.Error("exact allowedFQDNs entry must carry serverNames with that host")
+	}
+	if !wildcard {
+		t.Error("wildcard allowedFQDNs entry must not carry serverNames")
+	}
+	objs, _, err = helmTemplate(t, "--set", "network.enforceSNI=false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw := fmt.Sprint(find(objs, "CiliumNetworkPolicy", release+"-shock-runner").Object); strings.Contains(raw, "serverNames") {
+		t.Error("enforceSNI=false must render no serverNames")
 	}
 }
 

@@ -182,6 +182,11 @@ network:
     podLabels:
       k8s-app: kube-dns
   metadataCIDR: 169.254.169.254/32
+  # cilium mode: require the TLS handshake to name the allowed host (SNI) on
+  # every exact allowedFQDNs entry. FQDN policy admits resolved addresses, and
+  # CDN addresses are shared between customers; SNI enforcement keeps the allow
+  # list a list of names. Wildcard entries are matched by address only.
+  enforceSNI: true
 
 monitoring:
   enabled: true

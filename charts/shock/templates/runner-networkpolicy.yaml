@@ -53,6 +53,14 @@ spec:
         - ports:
             - port: {{ .port | quote }}
               protocol: TCP
+          {{- /* CDN addresses are shared between customers, so a resolved IP
+               alone also admits every other name on it. With enforceSNI the TLS
+               handshake must name this host. Wildcard entries stay IP-only
+               because serverNames takes exact names. */}}
+          {{- if and $n.enforceSNI (not (contains "*" .host)) }}
+          serverNames:
+            - {{ .host | quote }}
+          {{- end }}
     {{- end }}
     {{- end }}
 {{- end }}
