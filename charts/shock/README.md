@@ -84,7 +84,8 @@ the session's PVC, so runtimes, tools and package caches a session installs
 (`mise` and `uv` keep theirs under `~/.local` and `~/.cache`) survive sleep and
 are already there on resume. The image entrypoint creates those directories, then
 runs `claude`; the runner's hard reset on resume touches only the repository
-directory.
+directory. Runtimes execute from the PVC, so the storage class must not mount
+volumes `noexec`.
 
 `apt` is present but needs root. On clusters that support Pod user namespaces
 (Kubernetes 1.36 GA; containerd 2.0+ or CRI-O 1.25+, kernel 6.3+ with
