@@ -126,6 +126,7 @@
         "securityContext": {"type": "object"},
         "podSecurityContext": {"type": "object"},
         "serviceAccountName": {"type": "string"},
+        "hostUsers": {"type": ["boolean", "null"]},
         "priorityClassName": {"type": "string"},
         "nodeSelector": {"$ref": "#/$defs/stringMap"},
         "tolerations": {"$ref": "#/$defs/objectList"},

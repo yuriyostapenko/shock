@@ -41,7 +41,8 @@ operations document.
   upstream. SHOCK does not install or own its CRDs.
 - A Claude Code self-hosted environment and its environment key.
 - Storage for per-session PVCs; the default uses `ReadWriteOncePod`.
-- A runner image satisfying the contract in the chart README.
+- A runner image; the chart defaults to the released `shock-runner` image, and
+  the chart README documents the contract for bringing your own.
 
 ## Repository
 
@@ -54,6 +55,7 @@ operations document.
 | `internal/sessioncontroller/` | The controller-runtime session controller |
 | `internal/patch/` | UID + resourceVersion pinned merge patches |
 | `images/orchestrator/Dockerfile` | Distroless image: `claude`, `shock`, `/hooks/spawn-runner` symlink |
+| `images/runner/Dockerfile` | Default runner image: `claude`, git, ssh, `mise` and `uv` for root-free tool installs |
 | `test/chart/` | Typed decode of the rendered Sandbox template, forced-field and RBAC checks |
 | `test/envtest/` | API-concurrency tests against a real kube-apiserver |
 | `test/e2e/` | kind e2e including agent-sandbox conformance |
@@ -76,8 +78,9 @@ bin/shock version   # git tag or pseudo-version, commit, commit time, Go version
 ```
 
 Releases: push a `vX.Y.Z` tag on a `main` commit; `.github/workflows/release.yaml`
-publishes `ghcr.io/yuriyostapenko/shock:X.Y.Z`, the chart at
-`oci://ghcr.io/yuriyostapenko/charts/shock:X.Y.Z` with that image pinned by
+publishes `ghcr.io/yuriyostapenko/shock:X.Y.Z` and
+`ghcr.io/yuriyostapenko/shock-runner:X.Y.Z`, the chart at
+`oci://ghcr.io/yuriyostapenko/charts/shock:X.Y.Z` with both images pinned by
 digest, and the GitHub Release.
 
 ## Validation

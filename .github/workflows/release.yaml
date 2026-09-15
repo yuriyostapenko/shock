@@ -47,7 +47,7 @@ jobs:
           echo "owner=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
   image:
-    name: image ${{ needs.verify.outputs.version }}
+    name: ${{ matrix.name }} ${{ needs.verify.outputs.version }}
     needs: verify
     runs-on: ubuntu-latest
     permissions:
@@ -55,9 +55,14 @@ jobs:
       packages: write
       id-token: write
       attestations: write
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
-      ref: ghcr.io/${{ needs.verify.outputs.owner }}/shock
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: shock
+            dockerfile: images/orchestrator/Dockerfile
+          - name: shock-runner
+            dockerfile: images/runner/Dockerfile
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -73,7 +78,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v6.2.0
         with:
-          images: ghcr.io/${{ needs.verify.outputs.owner }}/shock
+          images: ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.name }}
           tags: |
             type=raw,value=${{ needs.verify.outputs.version }}
             type=sha
@@ -81,7 +86,7 @@ jobs:
         uses: docker/build-push-action@v7.3.0
         with:
           context: .
-          file: images/orchestrator/Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -90,15 +95,24 @@ jobs:
           sbom: true
       - uses: sigstore/cosign-installer@v4.1.2
       - name: sign image (keyless)
-        run: cosign sign --yes "ghcr.io/${{ needs.verify.outputs.owner }}/shock@${{ steps.build.outputs.digest }}"
+        run: cosign sign --yes "ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.name }}@${{ steps.build.outputs.digest }}"
       # GitHub build provenance is offered for public repositories on every
       # current plan and for private ones on Enterprise Cloud only.
       - uses: actions/attest-build-provenance@v4.2.2
         if: github.event.repository.private == false
         with:
-          subject-name: ghcr.io/${{ needs.verify.outputs.owner }}/shock
+          subject-name: ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.name }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+      - name: record digest
+        run: |
+          mkdir -p digests
+          echo "${{ steps.build.outputs.digest }}" > "digests/${{ matrix.name }}"
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: digest-${{ matrix.name }}
+          path: digests/${{ matrix.name }}
+          if-no-files-found: error
 
   chart:
     name: chart ${{ needs.verify.outputs.version }}
@@ -112,19 +126,30 @@ jobs:
     outputs:
       digest: ${{ steps.push.outputs.digest }}
       ref: oci://ghcr.io/${{ needs.verify.outputs.owner }}/charts/shock
+      image_digest: ${{ steps.pin.outputs.image_digest }}
+      runner_digest: ${{ steps.pin.outputs.runner_digest }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: azure/setup-helm@v5.0.1
         with:
           version: ${{ env.HELM_VERSION }}
-      - name: pin the released image into the chart defaults
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      - name: pin the released images into the chart defaults
+        id: pin
         env:
-          VERSION: ${{ needs.verify.outputs.version }}
           OWNER: ${{ needs.verify.outputs.owner }}
-          DIGEST: ${{ needs.image.outputs.digest }}
         run: |
-          yq -i '.orchestrator.image.repository = "ghcr.io/" + strenv(OWNER) + "/shock" | .orchestrator.image.digest = strenv(DIGEST)' charts/shock/values.yaml
-          yq '.orchestrator.image' charts/shock/values.yaml
+          IMAGE_DIGEST="$(cat digests/shock)"; RUNNER_DIGEST="$(cat digests/shock-runner)"
+          export IMAGE_DIGEST RUNNER_DIGEST
+          yq -i '.orchestrator.image.repository = "ghcr.io/" + strenv(OWNER) + "/shock" | .orchestrator.image.digest = strenv(IMAGE_DIGEST)
+                 | .runner.image.repository = "ghcr.io/" + strenv(OWNER) + "/shock-runner" | .runner.image.digest = strenv(RUNNER_DIGEST)' charts/shock/values.yaml
+          yq '{"orchestrator": .orchestrator.image, "runner": .runner.image}' charts/shock/values.yaml
+          echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "runner_digest=$RUNNER_DIGEST" >> "$GITHUB_OUTPUT"
       - name: lint and package
         env:
           VERSION: ${{ needs.verify.outputs.version }}
@@ -175,8 +200,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.verify.outputs.version }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
-          IMAGE_REF: ${{ needs.image.outputs.ref }}
-          IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+          OWNER: ${{ needs.verify.outputs.owner }}
+          IMAGE_DIGEST: ${{ needs.chart.outputs.image_digest }}
+          RUNNER_DIGEST: ${{ needs.chart.outputs.runner_digest }}
           CHART_REF: ${{ needs.chart.outputs.ref }}
           CHART_DIGEST: ${{ needs.chart.outputs.digest }}
         run: |
@@ -185,24 +211,24 @@ jobs:
 
           | Artifact | Reference | Digest |
           | --- | --- | --- |
-          | Image | \`${IMAGE_REF}:${VERSION}\` | \`${IMAGE_DIGEST}\` |
+          | Orchestrator image | \`ghcr.io/${OWNER}/shock:${VERSION}\` | \`${IMAGE_DIGEST}\` |
+          | Default runner image | \`ghcr.io/${OWNER}/shock-runner:${VERSION}\` | \`${RUNNER_DIGEST}\` |
           | Chart | \`${CHART_REF}:${VERSION}\` | \`${CHART_DIGEST}\` |
 
           Install:
 
           \`\`\`sh
           helm install shock ${CHART_REF} --version ${VERSION} -n claude-runners \\
-            --set environment.existingSecret=<secret> \\
-            --set runner.image.repository=<registry>/claude-runner --set-string runner.image.tag=<tag>
+            --set environment.existingSecret=<secret>
           \`\`\`
 
           Verify (keyless signatures and build provenance):
 
           \`\`\`sh
-          cosign verify ${IMAGE_REF}@${IMAGE_DIGEST} \\
+          cosign verify ghcr.io/${OWNER}/shock@${IMAGE_DIGEST} \\
             --certificate-identity-regexp '^https://github.com/${GITHUB_REPOSITORY}/' \\
             --certificate-oidc-issuer https://token.actions.githubusercontent.com
-          gh attestation verify oci://${IMAGE_REF}@${IMAGE_DIGEST} --repo ${GITHUB_REPOSITORY}
+          gh attestation verify oci://ghcr.io/${OWNER}/shock@${IMAGE_DIGEST} --repo ${GITHUB_REPOSITORY}
           \`\`\`
           NOTES
           flags=(--verify-tag --generate-notes --notes-file notes.md)

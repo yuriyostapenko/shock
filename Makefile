@@ -8,11 +8,12 @@ KIND_CLUSTER  ?= shock-e2e
 KIND_NODE_IMAGE ?= kindest/node:v1.35.8
 AGENT_SANDBOX_VERSION ?= v1.0.2
 IMAGE         ?= shock:dev
+RUNNER_IMAGE  ?= shock-runner:dev
 CHART         := charts/shock
 E2E_NAMESPACE ?= shock-e2e
 export AGENT_SANDBOX_VERSION E2E_NAMESPACE
 
-.PHONY: all build fmt vet lint test envtest helm-lint helm-template chart-golden e2e-kind e2e-setup e2e e2e-teardown image clean
+.PHONY: all build fmt vet lint test envtest helm-lint helm-template chart-golden e2e-kind e2e-setup e2e e2e-teardown image image-runner clean
 
 all: fmt vet lint test helm-lint chart-golden
 
@@ -48,6 +49,9 @@ chart-golden:
 
 image:
 	docker build -f images/orchestrator/Dockerfile -t $(IMAGE) .
+
+image-runner:
+	docker build -f images/runner/Dockerfile -t $(RUNNER_IMAGE) .
 
 e2e-setup:
 	mkdir -p bin

@@ -179,8 +179,11 @@ shock/
 └── .github/workflows/              # lint (ct), unit, e2e, image build+sign
 ```
 
-The runner image itself is **an input, not a deliverable**: the chart takes `runner.image` as a
-value. Document its contract in the chart README: contains `claude` (pinned version ≥ the beta
+The runner image is **an input with a default**: the chart takes `runner.image` as a value and
+defaults it to `images/runner/Dockerfile`, published alongside the orchestrator image and pinned by
+digest in the released chart. The default follows the deploy doc's recipe plus user-space package
+managers (mise, uv) so sessions install tooling without root; operators build their own image
+`FROM` it. Document the contract in the chart README: contains `claude` (pinned version ≥ the beta
 minimum), git ≥ 2.32, a non-root user with writable `$HOME` and `/workspace`, and an optional
 wrapper at a known path for registry credentials ([section 9](#9-registry-credentials-npm--nuget--docker)).
 
@@ -845,7 +848,8 @@ controller refuses to act; conditions carry `ObservedGeneration: sandbox.Generat
 `Finished` and `PodScheduled` are removed when not applicable, `Suspended` never is; user
 `podTemplate` labels propagate to the pod except `agents.x-k8s.io/*` keys.
 
-Decisions taken where the spec left a choice: Sandbox names are **not** release-prefixed; a
+Decisions taken where the spec left a choice (2026-09-15 addition: the runner image gained a
+default, `images/runner/Dockerfile`, built and pinned by the release; sections 3 and 4 updated): Sandbox names are **not** release-prefixed; a
 session belongs to exactly one release and the hook exits 2 on a Sandbox labeled for another
 release. On a higher attempt the hook also installs the current chart pod template (carrying the
 installed order/Secret), so image and flag changes reach sessions at their next spawn without

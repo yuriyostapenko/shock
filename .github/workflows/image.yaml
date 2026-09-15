@@ -16,7 +16,16 @@ permissions:
 
 jobs:
   build:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: shock
+            dockerfile: images/orchestrator/Dockerfile
+          - name: shock-runner
+            dockerfile: images/runner/Dockerfile
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: docker/setup-qemu-action@v4.3.0
@@ -24,6 +33,6 @@ jobs:
       - uses: docker/build-push-action@v7.3.0
         with:
           context: .
-          file: images/orchestrator/Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: false

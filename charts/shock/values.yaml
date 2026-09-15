@@ -70,8 +70,9 @@ sessionController:
 
 runner:
   image:
-    repository: ""   # required; contract in README
-    tag: ""          # required
+    repository: ghcr.io/yuriyostapenko/shock-runner   # the default runner image (README); build your own FROM it
+    tag: ""          # defaults to the chart's appVersion
+    digest: ""       # pinned by the release workflow into the published chart
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   # Same on every runner in the environment: recorded absolute paths must
@@ -108,6 +109,12 @@ runner:
   podSecurityContext:
     fsGroup: 1000
   serviceAccountName: ""  # no token is ever mounted, whatever account is used
+  # Set false to run the Pod in a user namespace (Kubernetes 1.36 GA; needs
+  # containerd 2.0+/CRI-O 1.25+ and kernel 6.3+ with idmapped mounts). Root
+  # inside the container is then an unprivileged host user, so `apt-get` works
+  # in the default runner image with securityContext.runAsUser: 0 and
+  # runAsNonRoot: false. Leave unset to keep the host user namespace.
+  hostUsers: null
   priorityClassName: ""
   nodeSelector: {}
   tolerations: []

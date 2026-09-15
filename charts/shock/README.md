@@ -22,7 +22,7 @@ survives sleep. Runner compute scales to zero between messages.
 | Persistent storage for per-session PVCs | Default access mode `ReadWriteOncePod` (needs a CSI driver). Immutable per session after creation. |
 | Cilium (default `network.mode: cilium`) | Or set `network.mode: kubernetes` (no FQDN filtering) or `none`. |
 | Prometheus Operator (default `monitoring.enabled: true`) | PodMonitor and PrometheusRule CRDs. Set `monitoring.enabled: false` otherwise. |
-| A SHOCK image and a runner image | See below. |
+| The SHOCK image and a runner image | Both published by the release; see below. |
 
 ## Install
 
@@ -39,12 +39,11 @@ kubectl create namespace claude-runners
 kubectl -n claude-runners create secret generic claude-environment --from-file=environment-secret=./environment-secret && rm ./environment-secret
 
 helm install shock oci://ghcr.io/yuriyostapenko/charts/shock --version X.Y.Z -n claude-runners \
-  --set environment.existingSecret=claude-environment \
-  --set runner.image.repository=<registry>/claude-runner --set-string runner.image.tag=<tag>
+  --set environment.existingSecret=claude-environment
 ```
 
 From a checkout, `Chart.yaml` carries `0.0.0-dev`; pass `orchestrator.image.tag`
-(and optionally `orchestrator.image.digest`) yourself.
+and `runner.image.tag` (and optionally the digests) yourself.
 
 Both artifacts are signed keyless with cosign and carry GitHub build provenance:
 
@@ -67,17 +66,37 @@ process, the `shock` binary for the hook and the session controller, and
 under that name. The image has no shell or package manager and runs as user
 65532. The orchestrator Deployment leaves `/hooks` to the image.
 
-**Runner image** (`runner.image`) is an input, not a deliverable. Contract:
+**Default runner image** (`runner.image`, built from `images/runner/Dockerfile`,
+published as `ghcr.io/yuriyostapenko/shock-runner:X.Y.Z` and pinned by digest
+in the released chart). It follows Anthropic's recipe: `debian:trixie-slim`,
+`git` 2.47 and `openssh-client`, the native `claude` binary verified against
+the release manifest, and the doc's system git configuration. User `runner`
+(uid 1000, the chart's default `fsGroup`) owns `/workspace` and its home, and
+two user-space package managers are on `PATH` so sessions can install tooling
+without root:
 
-- `claude` at 2.1.224 or later, pinned (the runner disables auto-update inside
-  sessions; every session runs the image's binary). Anthropic's deploy doc
-  shows `debian:bookworm-slim` with the native binary from
-  `downloads.claude.ai/claude-code-releases/<version>/linux-x64/claude`.
-- `git >= 2.32`.
-- A non-root user with a writable `$HOME`; the chart sets `fsGroup: 1000` by
-  default so that user can write to a fresh PVC at `runner.baseDir` (`/workspace`).
-- Optional: a wrapper at a known path for per-session credentials, wired with
-  `runner.extraArgs: ["--exec-path", "/opt/claude/wrapper.sh"]`.
+- `mise` installs language runtimes and CLIs into `~/.local/share/mise`
+  (`mise use -g node@22`, `mise use -g go@latest`, `mise use -g jq`).
+- `uv` and `uvx` install Python versions and Python tools into `~/.local`.
+
+Everything installed this way lives in the container filesystem and is gone
+when the session's Pod exits; only `/workspace` persists. Point caches at the
+workspace (for example `runner.extraEnv` with `MISE_DATA_DIR=/workspace/.mise`)
+to keep them across a session's sleeps.
+
+`apt` is present but needs root. On clusters that support Pod user namespaces
+(Kubernetes 1.36 GA; containerd 2.0+ or CRI-O 1.25+, kernel 6.3+ with
+idmapped mounts), set `runner.hostUsers: false` together with
+`runner.securityContext.runAsUser: 0` and `runAsNonRoot: false`: root inside
+the container is then an unprivileged host user, `apt-get install` works, and
+Pod Security Standards waive the non-root requirement for such Pods.
+
+**Bring your own runner image** with `FROM ghcr.io/yuriyostapenko/shock-runner:X.Y.Z`
+and add toolchains as root before switching back to `USER 1000`. Whatever the
+image, the contract is: `claude` at 2.1.224 or later, pinned; `git >= 2.32`; a
+non-root user with a writable `$HOME` that can write to the PVC at
+`runner.baseDir`; and, optionally, a credentials wrapper wired with
+`runner.extraArgs: ["--exec-path", "/opt/claude/wrapper.sh"]`.
 
 ## How a session runs
 
@@ -135,7 +154,8 @@ types and enums. The load-bearing ones:
 | Key | Default | Notes |
 | --- | --- | --- |
 | `environment.existingSecret` | `""` | Secret with key `environment-secret`. Required unless `secretValue` is set. |
-| `orchestrator.image.tag` | `""` | Falls back to the chart's `appVersion`. `orchestrator.image.digest` pins the image; the release sets it. |
+| `orchestrator.image.tag`, `runner.image.tag` | `""` | Fall back to the chart's `appVersion`. The `digest` fields pin the images; the release sets them. |
+| `runner.hostUsers` | unset | `false` runs the runner Pod in a user namespace so root inside the container can use `apt`. |
 | `orchestrator.expectedSpawnSeconds` | `180` | Server-side spawn lease, shared by all replicas. Must exceed `hookTimeout + 5` (rendering fails otherwise). Includes the initial suspension round-trip. |
 | `orchestrator.hookTimeout` | `30` | The hook keeps its API work within 80% of this. |
 | `orchestrator.minIdle` | `0` | Pre-warm off. Standby runners are unbound Jobs without a PVC: they lower cold-start latency for *new* sessions only and never get a per-session disk. Enables `batch/jobs` create for the hook. |

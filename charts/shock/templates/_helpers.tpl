@@ -108,6 +108,9 @@ spec:
   {{- with $r.serviceAccountName }}
   serviceAccountName: {{ . | quote }}
   {{- end }}
+  {{- if not (kindIs "invalid" $r.hostUsers) }}
+  hostUsers: {{ $r.hostUsers }}
+  {{- end }}
   {{- with $r.priorityClassName }}
   priorityClassName: {{ . | quote }}
   {{- end }}
@@ -133,7 +136,7 @@ spec:
   {{- end }}
   containers:
     - name: runner
-      image: {{ include "shock.image" (dict "image" $r.image "name" "runner" "defaultTag" "") | quote }}
+      image: {{ include "shock.image" (dict "image" $r.image "name" "runner" "defaultTag" .Chart.AppVersion) | quote }}
       imagePullPolicy: {{ $r.image.pullPolicy }}
       {{- if $r.command }}
       command:

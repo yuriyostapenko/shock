@@ -73,6 +73,16 @@ func find(objs []unstructured.Unstructured, kind, name string) *unstructured.Uns
 	return nil
 }
 
+func sandboxTemplateRaw(t *testing.T, objs []unstructured.Unstructured) string {
+	t.Helper()
+	cm := find(objs, "ConfigMap", release+"-shock-sandbox-template")
+	if cm == nil {
+		t.Fatal("sandbox-template ConfigMap not rendered")
+	}
+	data, _, _ := unstructured.NestedString(cm.Object, "data", "sandbox-template.yaml")
+	return data
+}
+
 func sandboxTemplate(t *testing.T, objs []unstructured.Unstructured) *sandboxv1beta1.Sandbox {
 	t.Helper()
 	cm := find(objs, "ConfigMap", release+"-shock-sandbox-template")
@@ -354,10 +364,30 @@ func TestOrchestratorImageFollowsChartVersion(t *testing.T) {
 	if got := find(objs, "Deployment", release+"-shock-orchestrator").GetLabels()[naming.LabelVersion]; got != "custom" {
 		t.Errorf("version label = %q", got)
 	}
-	// The runner image has no default and must be supplied.
+	// The runner image defaults to the released runner image at appVersion and
+	// fails loudly when the repository is emptied.
+	objs, _, err = helmTemplate(t, "--set", "runner.image.digest="+digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb := sandboxTemplate(t, objs)
+	if got := sb.Spec.PodTemplate.Spec.Containers[0].Image; got != "ghcr.io/yuriyostapenko/shock-runner:0.0.0-dev@"+digest {
+		t.Errorf("default runner image = %q", got)
+	}
 	_, stderr, err := helmTemplate(t, "--set", "runner.image.repository=")
 	if err == nil || !strings.Contains(stderr, "runner.image.repository") {
-		t.Fatalf("runner image must be required: %v %s", err, stderr)
+		t.Fatalf("an empty runner repository must fail: %v %s", err, stderr)
+	}
+	// hostUsers is rendered only when set.
+	if strings.Contains(sandboxTemplateRaw(t, objs), "hostUsers") {
+		t.Error("hostUsers must be absent when unset")
+	}
+	objs, _, err = helmTemplate(t, "--set", "runner.hostUsers=false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sb := sandboxTemplate(t, objs); sb.Spec.PodTemplate.Spec.HostUsers == nil || *sb.Spec.PodTemplate.Spec.HostUsers {
+		t.Error("runner.hostUsers=false must render hostUsers: false")
 	}
 	// A malformed digest is rejected by the schema.
 	if _, _, err := helmTemplate(t, "--set", "orchestrator.image.digest=abc"); err == nil {
