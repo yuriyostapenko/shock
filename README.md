@@ -10,13 +10,11 @@ scales to zero between messages.
 ## Getting started
 
 Prerequisites: Kubernetes 1.35+, the [agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox)
-controller, and a Claude self-hosted environment whose key is in a Secret.
-Cilium and Prometheus Operator are optional (see [Requirements](#requirements)).
+controller, and a Claude self-hosted environment whose key is in a Secret
+(key `environment-secret`) in the target namespace. Cilium and Prometheus
+Operator are optional (see [Requirements](#requirements)).
 
 ```sh
-kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.2/sandbox.yaml
-kubectl create namespace claude-runners
-kubectl -n claude-runners create secret generic claude-environment --from-file=environment-secret=./environment-secret
 helm install shock oci://ghcr.io/yuriyostapenko/charts/shock --version X.Y.Z -n claude-runners --set environment.existingSecret=claude-environment
 ```
 
