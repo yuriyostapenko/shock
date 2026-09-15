@@ -31,6 +31,12 @@ var (
 		[]string{"sandbox", "operating_mode", "pending"}, nil)
 )
 
+// BuildInfo is a constant 1 labeled with what this binary was built from.
+var BuildInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "shock_build_info",
+	Help: "Build information of the running session controller; always 1.",
+}, []string{"version", "revision", "go_version"})
+
 // CRDServed is 1 while sandboxes.agents.x-k8s.io/v1beta1 is served.
 var CRDServed = prometheus.NewGauge(prometheus.GaugeOpts{
 	Name: "shock_crd_served",

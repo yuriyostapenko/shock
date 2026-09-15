@@ -21,11 +21,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"github.com/yuriyostapenko/shock/internal/buildinfo"
 	"github.com/yuriyostapenko/shock/internal/hook"
 	"github.com/yuriyostapenko/shock/internal/sessioncontroller"
 )
-
-var version = "dev"
 
 func main() {
 	// Invoked through the /hooks/spawn-runner symlink, the binary is the hook.
@@ -49,7 +48,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "version":
-		fmt.Println(version)
+		fmt.Println(buildinfo.Get())
 	default:
 		usage()
 		os.Exit(2)
@@ -90,6 +89,7 @@ func runHook() int {
 		fmt.Fprintln(os.Stderr, "spawn-runner: client:", err)
 		return hook.ExitRetryable
 	}
+	logger.Info("spawn-runner", "build", buildinfo.Get().String())
 	h := &hook.Hook{Client: c, Config: cfg, Log: logger}
 	if err := h.Run(ctx, req); err != nil {
 		code := hook.ExitCodeFor(err)
@@ -119,7 +119,7 @@ func runSessionController(args []string) error {
 	zl := zap.New(zap.UseDevMode(false))
 	ctrl.SetLogger(zl)
 	ctx := ctrl.LoggerInto(signalContext(), zl)
-	zl.Info("shock session-controller", "version", version)
+	zl.Info("shock session-controller", "build", buildinfo.Get().String())
 	return sessioncontroller.Run(ctx, ctrl.GetConfigOrDie(), sessioncontroller.ManagerOptions{
 		Namespace:        *namespace,
 		Release:          *release,

@@ -72,6 +72,7 @@ make helm-lint chart-golden
 make envtest          # downloads kube-apiserver/etcd for ENVTEST_K8S, runs test/envtest
 make e2e-kind         # creates kind cluster, installs agent-sandbox, runs test/e2e
 make image IMAGE=ghcr.io/you/shock:dev
+bin/shock version   # git tag or pseudo-version, commit, commit time, Go version
 ```
 
 Releases: push a `vX.Y.Z` tag on a `main` commit; `.github/workflows/release.yaml`

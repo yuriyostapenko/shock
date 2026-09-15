@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/yuriyostapenko/shock/internal/buildinfo"
 	"github.com/yuriyostapenko/shock/internal/naming"
 )
 
@@ -93,7 +94,9 @@ func Run(ctx context.Context, cfg *rest.Config, opts ManagerOptions) error {
 		return err
 	}
 	probe := &crdProbe{dc: dc}
-	metrics.Registry.MustRegister(CRDServed)
+	metrics.Registry.MustRegister(CRDServed, BuildInfo)
+	bi := buildinfo.Get()
+	BuildInfo.WithLabelValues(bi.Version, bi.Revision, bi.GoVersion).Set(1)
 
 	if err := waitForCRD(ctx, logger, probe, opts); err != nil {
 		return err

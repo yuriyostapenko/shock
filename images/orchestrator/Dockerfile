@@ -4,6 +4,10 @@
 # controller, and /hooks/spawn-runner as a symlink to `shock`, which runs the
 # hook when invoked under that name.
 #
+# The build stage bind-mounts the build context, .git included, so the Go
+# toolchain stamps the module version, commit and time into `shock`
+# (-buildvcs=true fails the build if it cannot). `shock version` reports them.
+#
 # The runtime is gcr.io/distroless/base-debian13:nonroot: glibc, OpenSSL, CA
 # certificates and tzdata, user 65532, /home/nonroot and /tmp writable. The
 # native claude binary comes from the Claude Code release location
@@ -14,14 +18,12 @@ ARG CLAUDE_CODE_VERSION=2.1.270
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-trixie AS build
 WORKDIR /src
-COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
-COPY cmd ./cmd
-COPY internal ./internal
-ARG TARGETOS TARGETARCH VERSION=dev
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+ARG TARGETOS TARGETARCH
+RUN --mount=type=bind,target=/src,readonly \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/shock ./cmd/shock
+    go build -trimpath -buildvcs=true -ldflags "-s -w" -o /out/shock ./cmd/shock
 
 FROM debian:trixie-slim AS fetch
 ARG CLAUDE_CODE_VERSION

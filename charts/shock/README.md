@@ -232,6 +232,7 @@ Sandbox name only (no session or account ids):
 | `shock_sandbox_pod_terminating_seconds{sandbox,pod}` | stranded-pod detection |
 | `shock_sandbox_info{sandbox,operating_mode,pending}`, `shock_sandboxes{operating_mode}` | inventory |
 | `shock_crd_served` | 1 while the Sandbox CRD is served |
+| `shock_build_info{version,revision,go_version}` | always 1; the git tag or pseudo-version and commit the binary was built from |
 
 The `PrometheusRule` carries Anthropic's sample alerts (runner poll stale,
 orchestrator disconnected, poll stale above `hookTimeout + 30`, circuit-broken,

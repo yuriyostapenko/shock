@@ -1,0 +1,7 @@
+# The Go build stage bind-mounts the context and git must see the tree exactly
+# as committed for version stamping, so only untracked build output is left out.
+bin/
+dist/
+coverage.out
+*.test
+*.prof

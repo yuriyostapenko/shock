@@ -37,6 +37,11 @@ jobs:
             echo "tag $tag does not point at a commit on main" >&2; exit 1
           fi
           version="${tag#v}"
+          # The module path has no /vN suffix, so Go only stamps tags with major 0 or 1
+          # as the module version; anything higher would silently become a pseudo-version.
+          if (( ${BASH_REMATCH[1]} > 1 )); then
+            echo "tag $tag: major versions above 1 need a /v${BASH_REMATCH[1]} module path suffix (go.mod) first" >&2; exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if [[ "$version" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
           echo "owner=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
@@ -55,6 +60,9 @@ jobs:
       ref: ghcr.io/${{ needs.verify.outputs.owner }}/shock
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: docker/setup-qemu-action@v4.3.0
       - uses: docker/setup-buildx-action@v4.3.0
       - uses: docker/login-action@v4.6.0
@@ -80,8 +88,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: mode=max
           sbom: true
-          build-args: |
-            VERSION=${{ needs.verify.outputs.version }}
       - uses: sigstore/cosign-installer@v4.1.2
       - name: sign image (keyless)
         run: cosign sign --yes "ghcr.io/${{ needs.verify.outputs.owner }}/shock@${{ steps.build.outputs.digest }}"
