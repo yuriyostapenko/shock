@@ -70,7 +70,9 @@ under that name. The image has no shell or package manager and runs as user
 published as `ghcr.io/yuriyostapenko/shock-runner:X.Y.Z` and pinned by digest
 in the released chart). It follows Anthropic's recipe: `debian:trixie-slim`,
 `git` 2.47 and `openssh-client`, the native `claude` binary verified against
-the release manifest, and the doc's system git configuration. User `runner`
+the release manifest, `libicu76` and `LANG=C.UTF-8` (ICU and a UTF-8 locale,
+which .NET and other runtimes installed later expect), and the doc's system git
+configuration. User `runner`
 (uid 1000, the chart's default `fsGroup`) owns its home, `/home/runner`, and
 two user-space package managers are on `PATH` so sessions can install tooling
 without root:
