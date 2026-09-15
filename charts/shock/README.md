@@ -183,7 +183,8 @@ types and enums. The load-bearing ones:
 | `runner.storage.accessMode` | `ReadWriteOncePod` | Immutable per session. Decide before first install. |
 | `runner.instructions` | environment notes | Markdown mounted at `/etc/claude-code/CLAUDE.md` in every runner Pod, Claude Code's managed-policy instructions: what Claude should know about this runner (persistent home, root-free installs, git proxy). Empty mounts nothing. |
 | `runner.podTemplate` | `{}` | Deep-merged over the rendered pod template (maps merge, lists replace). |
-| `network.allowedFQDNs` | Anthropic hosts plus the default image's toolchain hosts (GitHub, mise, Node, Python, Go, .NET) | `host` or `host:port`. One list for every runner egress destination; see values.yaml for the grouped default. |
+| `network.allowedFQDNs` | Anthropic hosts plus the default image's toolchain hosts (GitHub, mise, Node, Python, Go, .NET) | `host` or `host:port`; a leading `*.` matches every subdomain. This deployment's own list; see values.yaml for the grouped default. |
+| `network.anthropicTrustedDomains` | `true` | Also allow Anthropic's Trusted-level default domains from `files/anthropic-trusted-domains.txt`. |
 | `network.enforceSNI` | `true` | cilium mode: TLS to an `allowedFQDNs` entry must carry a matching SNI; wildcard entries are enforced as patterns. |
 | `network.mode` | `cilium` | `kubernetes` renders plain NetworkPolicy without FQDN rules; `none` renders nothing. |
 
@@ -250,6 +251,16 @@ for every `network.allowedFQDNs` entry on its port (443 default), an explicit
 L3 deny for `169.254.169.254/32`, and `kube-apiserver` for the orchestrator and
 session controller. This governs egress from the Pod; image pulls are the
 kubelet's traffic and do not belong here.
+
+Two lists feed the runner's `toFQDNs` rules. `network.allowedFQDNs` is this
+deployment's own list. `network.anthropicTrustedDomains` (default `true`) adds
+Anthropic's Trusted-level default domains, the allow list of Anthropic-hosted
+environments, kept verbatim in `files/anthropic-trusted-domains.txt` with its
+source and fetch date so it can be refreshed with `make trusted-domains`
+without touching your list. It is broad (`*.amazonaws.com`, `*.googleapis.com`
+and other object stores are on it); set it to `false` for a default-deny
+posture that allows only what you list. Duplicates between the lists collapse
+into one rule.
 
 `toFQDNs` admits the addresses a name resolved to, and CDN addresses are shared
 between customers: a host that lands on the same address as an allowed one is

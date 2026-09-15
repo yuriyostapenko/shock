@@ -168,7 +168,8 @@
           }
         },
         "metadataCIDR": {"type": "string"},
-        "enforceSNI": {"type": "boolean"}
+        "enforceSNI": {"type": "boolean"},
+        "anthropicTrustedDomains": {"type": "boolean"}
       }
     },
     "monitoring": {

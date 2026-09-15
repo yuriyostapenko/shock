@@ -1,7 +1,26 @@
 {{- $mode := .Values.network.mode -}}
 {{- $n := .Values.network -}}
+{{- /* allowedFQDNs first, then Anthropic's Trusted list when enabled; duplicates
+     (same host and port) are dropped. A leading "*." means every subdomain and
+     becomes Cilium's multilevel "**." in both toFQDNs and serverNames. */}}
+{{- $entries := list -}}
+{{- range $n.allowedFQDNs }}{{ $entries = append $entries . }}{{ end -}}
+{{- if $n.anthropicTrustedDomains -}}
+{{- range $.Files.Lines "files/anthropic-trusted-domains.txt" -}}
+{{- $line := trim . -}}
+{{- if and $line (not (hasPrefix "#" $line)) }}{{ $entries = append $entries $line }}{{ end -}}
+{{- end -}}
+{{- end -}}
 {{- $fqdns := list -}}
-{{- range $n.allowedFQDNs }}{{ $fqdns = append $fqdns (include "shock.fqdnEntry" . | fromJson) }}{{ end -}}
+{{- $seen := dict -}}
+{{- range $entries -}}
+{{- $e := include "shock.fqdnEntry" . | fromJson -}}
+{{- $key := printf "%s:%s" $e.host $e.port -}}
+{{- if not (hasKey $seen $key) -}}
+{{- $_ := set $seen $key true -}}
+{{- $fqdns = append $fqdns $e -}}
+{{- end -}}
+{{- end -}}
 {{- $components := list "runner" "orchestrator" "session-controller" -}}
 {{- if eq $mode "cilium" }}
 {{- range $component := $components }}
@@ -44,10 +63,10 @@ spec:
     {{- if ne $component "session-controller" }}
     {{- range $fqdns }}
     - toFQDNs:
-        {{- if contains "*" .host }}
-        - matchPattern: {{ .host | quote }}
+        {{- if contains "*" .pattern }}
+        - matchPattern: {{ .pattern | quote }}
         {{- else }}
-        - matchName: {{ .host | quote }}
+        - matchName: {{ .pattern | quote }}
         {{- end }}
       toPorts:
         - ports:
@@ -56,10 +75,10 @@ spec:
           {{- /* CDN addresses are shared between customers, so a resolved IP
                alone also admits every other name on it. With enforceSNI the TLS
                handshake must name a host matching this entry; serverNames takes
-               the same `*` patterns as toFQDNs. */}}
+               the same patterns as toFQDNs. */}}
           {{- if $n.enforceSNI }}
           serverNames:
-            - {{ .host | quote }}
+            - {{ .pattern | quote }}
           {{- end }}
     {{- end }}
     {{- end }}

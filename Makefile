@@ -13,7 +13,7 @@ CHART         := charts/shock
 E2E_NAMESPACE ?= shock-e2e
 export AGENT_SANDBOX_VERSION E2E_NAMESPACE
 
-.PHONY: all build fmt vet lint test envtest helm-lint helm-template chart-golden e2e-kind e2e-setup e2e e2e-teardown image image-runner clean
+.PHONY: all build fmt vet lint test envtest helm-lint helm-template chart-golden trusted-domains e2e-kind e2e-setup e2e e2e-teardown image image-runner clean
 
 all: fmt vet lint test helm-lint chart-golden
 
@@ -44,6 +44,10 @@ helm-template:
 	helm template shock $(CHART) -n shock -f test/values/minimal.yaml --kube-version 1.35.0
 
 # The rendered sandbox-template must strict-decode into the typed Sandbox.
+# Regenerates charts/shock/files/anthropic-trusted-domains.txt from Anthropic's docs.
+trusted-domains:
+	./hack/update-trusted-domains.sh
+
 chart-golden:
 	$(GO) test ./test/chart/... -count=1
 

@@ -76,13 +76,19 @@ defaultTag, and an empty repository or resolved tag fails the render.
 {{- end -}}
 {{- end -}}
 
-{{/* Parse "host" or "host:port" into (dict "host" "port"). */}}
+{{/*
+Parse "host" or "host:port" into (dict "host" "port" "pattern"). "pattern" is
+the Cilium spelling: a leading "*." (every subdomain) becomes "**.", which
+matches one or more labels in toFQDNs and serverNames alike.
+*/}}
 {{- define "shock.fqdnEntry" -}}
 {{- $parts := splitList ":" . -}}
 {{- $host := index $parts 0 -}}
 {{- $port := "443" -}}
 {{- if gt (len $parts) 1 }}{{ $port = index $parts 1 }}{{ end -}}
-{{- dict "host" $host "port" $port | toJson -}}
+{{- $pattern := $host -}}
+{{- if hasPrefix "*." $host }}{{ $pattern = printf "*%s" $host }}{{ end -}}
+{{- dict "host" $host "port" $port "pattern" $pattern | toJson -}}
 {{- end -}}
 
 {{/*

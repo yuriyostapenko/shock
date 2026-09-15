@@ -273,15 +273,15 @@ func TestCiliumRunnerPolicyEnforcesSNI(t *testing.T) {
 		switch {
 		case sel["matchName"] == "api.anthropic.com":
 			exact = len(names) == 1 && names[0] == "api.anthropic.com"
-		case sel["matchPattern"] == "*.githubusercontent.com":
-			wildcard = len(names) == 1 && names[0] == "*.githubusercontent.com"
+		case sel["matchPattern"] == "**.githubusercontent.com":
+			wildcard = len(names) == 1 && names[0] == "**.githubusercontent.com"
 		}
 	}
 	if !exact {
 		t.Error("exact allowedFQDNs entry must carry serverNames with that host")
 	}
 	if !wildcard {
-		t.Error("wildcard allowedFQDNs entry must carry serverNames with the same pattern")
+		t.Error("a leading *. must render as Cilium's multilevel **. in toFQDNs and serverNames")
 	}
 	objs, _, err = helmTemplate(t, "--set", "network.enforceSNI=false")
 	if err != nil {
@@ -289,6 +289,54 @@ func TestCiliumRunnerPolicyEnforcesSNI(t *testing.T) {
 	}
 	if raw := fmt.Sprint(find(objs, "CiliumNetworkPolicy", release+"-shock-runner").Object); strings.Contains(raw, "serverNames") {
 		t.Error("enforceSNI=false must render no serverNames")
+	}
+}
+
+func fqdnPatterns(t *testing.T, objs []unstructured.Unstructured) map[string]int {
+	t.Helper()
+	cnp := find(objs, "CiliumNetworkPolicy", release+"-shock-runner")
+	if cnp == nil {
+		t.Fatal("runner CiliumNetworkPolicy not rendered")
+	}
+	egress, _, _ := unstructured.NestedSlice(cnp.Object, "spec", "egress")
+	out := map[string]int{}
+	for _, e := range egress {
+		fqdns, _, _ := unstructured.NestedSlice(e.(map[string]any), "toFQDNs")
+		for _, f := range fqdns {
+			for _, v := range f.(map[string]any) {
+				out[v.(string)]++
+			}
+		}
+	}
+	return out
+}
+
+func TestAnthropicTrustedDomainsMergeAndToggle(t *testing.T) {
+	objs, _, err := helmTemplate(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pats := fqdnPatterns(t, objs)
+	for _, want := range []string{"ghcr.io", "**.gcr.io", "api.nuget.org"} {
+		if pats[want] == 0 {
+			t.Errorf("default render must include Trusted host %q", want)
+		}
+	}
+	for name, n := range pats {
+		if n > 1 {
+			t.Errorf("host %q rendered %d times; lists must be deduplicated", name, n)
+		}
+	}
+	objs, _, err = helmTemplate(t, "--set", "network.anthropicTrustedDomains=false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pats = fqdnPatterns(t, objs)
+	if pats["ghcr.io"] != 0 || pats["**.gcr.io"] != 0 {
+		t.Error("anthropicTrustedDomains=false must render none of the Trusted list")
+	}
+	if pats["api.anthropic.com"] != 1 || pats["registry.npmjs.org"] != 1 {
+		t.Error("allowedFQDNs entries must remain when the Trusted list is off")
 	}
 }
 

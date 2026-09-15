@@ -171,11 +171,16 @@ network:
   # cilium: CiliumNetworkPolicy with toFQDNs. kubernetes: plain NetworkPolicy
   # without FQDN filtering (documented gap). none: render nothing.
   mode: cilium
-  # host or host:port (443 default). One list for every runner egress
-  # destination: Anthropic, git hosts, package registries or mirrors.
-  # Anthropic's list: https://code.claude.com/docs/en/self-hosted-environments-deploy#network-requirements
-  # The rest is what the default runner image's tooling (mise, uv, npm, dotnet)
-  # fetches from; trim it for a different image or a mirror.
+  # Also allow Anthropic's Trusted-level default domains, the allow list of
+  # Anthropic-hosted environments (files/anthropic-trusted-domains.txt, ~200
+  # hosts: registries, GitHub, cloud SDKs). It is broad; set false to allow
+  # only allowedFQDNs. Refresh the file with `make trusted-domains`.
+  anthropicTrustedDomains: true
+  # host or host:port (443 default). This deployment's own egress list, kept
+  # separate from Anthropic's: the self-hosted requirements plus what the
+  # default runner image's tooling (mise, uv, npm, dotnet) fetches from. A
+  # leading "*." matches every subdomain. Trim it for another image or a mirror.
+  # Anthropic's requirements: https://code.claude.com/docs/en/self-hosted-environments-deploy#network-requirements
   allowedFQDNs:
     # Anthropic: control plane, inference, git proxy, plugin and docs lookups
     - api.anthropic.com
