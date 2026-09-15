@@ -183,7 +183,7 @@ types and enums. The load-bearing ones:
 | `runner.storage.accessMode` | `ReadWriteOncePod` | Immutable per session. Decide before first install. |
 | `runner.instructions` | environment notes | Markdown mounted at `/etc/claude-code/CLAUDE.md` in every runner Pod, Claude Code's managed-policy instructions: what Claude should know about this runner (persistent home, root-free installs, git proxy). Empty mounts nothing. |
 | `runner.podTemplate` | `{}` | Deep-merged over the rendered pod template (maps merge, lists replace). |
-| `network.allowedFQDNs` | Anthropic hosts plus the default image's toolchain hosts (GitHub, mise, Node, Python, Go, .NET) | `host` or `host:port`; a leading `*.` matches every subdomain. This deployment's own list; see values.yaml for the grouped default. |
+| `network.allowedFQDNs` | hosts the Trusted list lacks: Anthropic downloads and docs, GitHub asset and ghcr layer hosts, mise metadata, Go and .NET downloads, registry layer hosts | `host` or `host:port`; a leading `*.` matches every subdomain. This deployment's own list, disjoint from Anthropic's; see values.yaml. |
 | `network.anthropicTrustedDomains` | `true` | Also allow Anthropic's Trusted-level default domains from `files/anthropic-trusted-domains.txt`. |
 | `network.enforceSNI` | `true` | cilium mode: TLS to an `allowedFQDNs` entry must carry a matching SNI; wildcard entries are enforced as patterns. |
 | `network.mode` | `cilium` | `kubernetes` renders plain NetworkPolicy without FQDN rules; `none` renders nothing. |
@@ -259,8 +259,10 @@ environments, kept verbatim in `files/anthropic-trusted-domains.txt` with its
 source and fetch date so it can be refreshed with `make trusted-domains`
 without touching your list. It is broad (`*.amazonaws.com`, `*.googleapis.com`
 and other object stores are on it); set it to `false` for a default-deny
-posture that allows only what you list. Duplicates between the lists collapse
-into one rule.
+posture that allows only what you list. The default `allowedFQDNs` holds only
+what Anthropic's list lacks, so with the Trusted list off you list every host
+yourself, and the chart refuses to render unless `api.anthropic.com` is among
+them. Duplicates between the lists collapse into one rule.
 
 `toFQDNs` admits the addresses a name resolved to, and CDN addresses are shared
 between customers: a host that lands on the same address as an allowed one is

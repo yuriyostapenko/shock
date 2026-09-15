@@ -61,6 +61,13 @@ defaultTag, and an empty repository or resolved tag fails the render.
 {{- if or (lt (int $o.expectedSpawnSeconds) 10) (gt (int $o.expectedSpawnSeconds) 3600) -}}
 {{- fail "orchestrator.expectedSpawnSeconds must be within 10..3600" -}}
 {{- end -}}
+{{- if and (ne .Values.network.mode "none") (not .Values.network.anthropicTrustedDomains) -}}
+{{- $hasAPI := false -}}
+{{- range .Values.network.allowedFQDNs }}{{ if hasPrefix "api.anthropic.com" . }}{{ $hasAPI = true }}{{ end }}{{ end -}}
+{{- if not $hasAPI -}}
+{{- fail "network.anthropicTrustedDomains is false: network.allowedFQDNs must include api.anthropic.com or the runner cannot reach the control plane" -}}
+{{- end -}}
+{{- end -}}
 {{- if and (empty .Values.environment.existingSecret) (empty .Values.environment.secretValue) -}}
 {{- fail "set environment.existingSecret (preferred) or environment.secretValue" -}}
 {{- end -}}

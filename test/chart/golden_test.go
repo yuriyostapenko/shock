@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sigs.k8s.io/yaml"
 	"strings"
 	"testing"
 
@@ -327,7 +328,10 @@ func TestAnthropicTrustedDomainsMergeAndToggle(t *testing.T) {
 			t.Errorf("host %q rendered %d times; lists must be deduplicated", name, n)
 		}
 	}
-	objs, _, err = helmTemplate(t, "--set", "network.anthropicTrustedDomains=false")
+	if _, _, err := helmTemplate(t, "--set", "network.anthropicTrustedDomains=false"); err == nil {
+		t.Error("Trusted list off without api.anthropic.com in allowedFQDNs must fail to render")
+	}
+	objs, _, err = helmTemplate(t, "--set", "network.anthropicTrustedDomains=false", "--set", "network.allowedFQDNs={api.anthropic.com,mise-versions.jdx.dev}")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,8 +339,45 @@ func TestAnthropicTrustedDomainsMergeAndToggle(t *testing.T) {
 	if pats["ghcr.io"] != 0 || pats["**.gcr.io"] != 0 {
 		t.Error("anthropicTrustedDomains=false must render none of the Trusted list")
 	}
-	if pats["api.anthropic.com"] != 1 || pats["registry.npmjs.org"] != 1 {
+	if pats["api.anthropic.com"] != 1 || pats["mise-versions.jdx.dev"] != 1 {
 		t.Error("allowedFQDNs entries must remain when the Trusted list is off")
+	}
+}
+
+func TestDefaultAllowedFQDNsDisjointFromTrusted(t *testing.T) {
+	dir := chartDir(t)
+	raw, err := os.ReadFile(filepath.Join(dir, "files", "anthropic-trusted-domains.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var trusted []string
+	for _, l := range strings.Split(string(raw), "\n") {
+		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
+			trusted = append(trusted, l)
+		}
+	}
+	valuesRaw, err := os.ReadFile(filepath.Join(dir, "values.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var values struct {
+		Network struct {
+			AllowedFQDNs []string `json:"allowedFQDNs"`
+		} `json:"network"`
+	}
+	if err := yaml.Unmarshal(valuesRaw, &values); err != nil {
+		t.Fatal(err)
+	}
+	if len(values.Network.AllowedFQDNs) == 0 {
+		t.Fatal("default allowedFQDNs is empty")
+	}
+	for _, entry := range values.Network.AllowedFQDNs {
+		host := strings.Split(entry, ":")[0]
+		for _, tr := range trusted {
+			if host == tr || (strings.HasPrefix(tr, "*.") && strings.HasSuffix(host, tr[1:])) {
+				t.Errorf("default allowedFQDNs entry %q is already covered by Trusted entry %q", host, tr)
+			}
+		}
 	}
 }
 
