@@ -26,9 +26,6 @@ orchestrator:
   # Hook process budget. Template rendering fails unless hookTimeout + 5 < expectedSpawnSeconds.
   hookTimeout: 30
   hookConcurrency: 4
-  # Pre-warm OFF by default. Standby runners are unbound: they never get a
-  # per-session disk, so pre-warming only lowers cold-start latency for new sessions.
-  minIdle: 0
   healthPort: 8080
   extraEnv: []       # e.g. HTTPS_PROXY / NO_PROXY for the orchestrator process
   extraArgs: []      # appended to the orchestrator command

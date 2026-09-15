@@ -101,8 +101,11 @@ func (h *Hook) Run(ctx context.Context, req Request) error {
 	if h.Log == nil {
 		h.Log = slog.Default()
 	}
-	if req.PreWarm() {
-		return h.runPreWarm(ctx, req)
+	if req.SessionID == "" {
+		// A standby (pre-warm) order: the orchestrator sends these only with
+		// --min-idle > 0, which the chart never sets. Standby runners cannot have
+		// a per-session disk, so SHOCK does not run them.
+		return nonRetryable("order %s has no session id: pre-warming is not supported; run the orchestrator without --min-idle", req.OrderID)
 	}
 	return h.runSession(ctx, req)
 }

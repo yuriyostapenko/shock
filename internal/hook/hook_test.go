@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -389,47 +388,16 @@ func TestConflictIsRereadAndRecomputed(t *testing.T) {
 	}
 }
 
-func TestPreWarm(t *testing.T) {
+func TestStandbyOrderIsNonRetryable(t *testing.T) {
 	c := newFakeClient(t)
 	cfg := testConfig(writeTemplate(t, testTemplate))
 	req := Request{OrderID: "pw-order", Attempt: 0, WorkOrder: []byte("jwt-pw")}
-	if err := run(t, c, cfg, req); err != nil {
-		t.Fatalf("minIdle=0 must be a no-op: %v", err)
+	err := run(t, c, cfg, req)
+	if ExitCodeFor(err) != ExitNonRetryable {
+		t.Fatalf("an order without a session id must exit non-retryable, got %v", err)
 	}
-	jobs := &batchv1.JobList{}
-	if err := c.List(context.Background(), jobs); err != nil || len(jobs.Items) != 0 {
-		t.Fatalf("no job expected: %v %d", err, len(jobs.Items))
-	}
-	cfg.MinIdle = 1
-	if err := run(t, c, cfg, req); err != nil {
-		t.Fatalf("pre-warm failed: %v", err)
-	}
-	if err := run(t, c, cfg, req); err != nil {
-		t.Fatalf("pre-warm redelivery failed: %v", err)
-	}
-	if err := c.List(context.Background(), jobs); err != nil || len(jobs.Items) != 1 {
-		t.Fatalf("want 1 job: %v %d", err, len(jobs.Items))
-	}
-	job := jobs.Items[0]
-	ps := job.Spec.Template.Spec
-	if ps.RestartPolicy != corev1.RestartPolicyNever {
-		t.Error("restartPolicy must be Never")
-	}
-	var hasEmptyDir bool
-	for _, v := range ps.Volumes {
-		if v.Name == "workspace" && v.EmptyDir != nil {
-			hasEmptyDir = true
-		}
-	}
-	if !hasEmptyDir {
-		t.Error("pre-warm runner must use scratch workspace, not a PVC")
-	}
-	if strings.Contains(strings.Join(ps.Containers[0].Args, " "), "--lock-to-account") {
-		t.Error("pre-warm runner must not be locked")
-	}
-	secrets := listSecrets(t, c)
-	if len(secrets) != 1 || secrets[0].OwnerReferences[0].UID != job.UID {
-		t.Errorf("pre-warm secret must be owned by the job: %+v", secrets)
+	if n := len(listSecrets(t, c)); n != 0 {
+		t.Errorf("no Secret may be written for a standby order, got %d", n)
 	}
 }
 
@@ -443,12 +411,12 @@ func TestRequestFromEnv(t *testing.T) {
 		t.Fatalf("parse: %v %+v", err, r)
 	}
 	env[EnvAttempt] = "0"
-	if r, err := RequestFromEnv(func(k string) string { return env[k] }, read); err != nil || r.Attempt != 0 || r.PreWarm() {
+	if r, err := RequestFromEnv(func(k string) string { return env[k] }, read); err != nil || r.Attempt != 0 || r.SessionID == "" {
 		t.Errorf("a session's first spawn request carries attempt 0: %v %+v", err, r)
 	}
 	env[EnvSessionID] = ""
-	if r, err := RequestFromEnv(func(k string) string { return env[k] }, read); err != nil || !r.PreWarm() {
-		t.Errorf("pre-warm parse: %v", err)
+	if r, err := RequestFromEnv(func(k string) string { return env[k] }, read); err != nil || r.SessionID != "" {
+		t.Errorf("an empty session id must parse (standby order): %v", err)
 	}
 	env[EnvOrderID] = "bad/name"
 	if _, err := RequestFromEnv(func(k string) string { return env[k] }, read); err == nil {

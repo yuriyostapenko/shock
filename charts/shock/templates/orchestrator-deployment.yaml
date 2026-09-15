@@ -78,8 +78,6 @@ spec:
             - {{ $o.hookTimeout | quote }}
             - --hook-concurrency
             - {{ $o.hookConcurrency | quote }}
-            - --min-idle
-            - {{ $o.minIdle | quote }}
             - --health-port
             - {{ $o.healthPort | quote }}
             {{- range $o.extraArgs }}
@@ -101,8 +99,6 @@ spec:
               value: {{ .Values.runner.baseDir | quote }}
             - name: SHOCK_RUNNER_TERMINATION_GRACE_PERIOD_SECONDS
               value: {{ .Values.runner.terminationGracePeriodSeconds | quote }}
-            - name: SHOCK_MIN_IDLE
-              value: {{ $o.minIdle | quote }}
             - name: SHOCK_HOOK_TIMEOUT_SECONDS
               value: {{ $o.hookTimeout | quote }}
             {{- with $o.extraEnv }}

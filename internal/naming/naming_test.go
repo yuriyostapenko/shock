@@ -56,9 +56,6 @@ func TestSandboxName(t *testing.T) {
 	if SandboxName("a", "session-1") == SandboxName("b", "session-1") {
 		t.Error("the same session in two releases must get distinct names")
 	}
-	if got := PrewarmJobName("shock", "order-1"); got != "shock-pw-order-1" {
-		t.Errorf("PrewarmJobName = %q", got)
-	}
 }
 
 func TestWorkOrderSecretName(t *testing.T) {

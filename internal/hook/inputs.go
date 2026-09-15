@@ -15,8 +15,8 @@ import (
 // 2026-09-14; CLAUDE_RUNNER_ATTEMPT is documented as "how many spawn requests
 // this session has had" and CLAUDE_RUNNER_ORDER_ID as the per-request
 // idempotency key. Observed live on 2026-09-15: the first spawn request of a
-// session carries CLAUDE_RUNNER_ATTEMPT=0, so the counter is zero-based and a
-// pre-warming request is recognised by its empty session id alone.
+// session carries CLAUDE_RUNNER_ATTEMPT=0, so the counter is zero-based. A
+// standby (pre-warm) order carries an empty session id.
 const (
 	EnvWorkOrderFile = "CLAUDE_RUNNER_WORK_ORDER_FILE"
 	EnvOrderID       = "CLAUDE_RUNNER_ORDER_ID"
@@ -37,7 +37,6 @@ const (
 	EnvShockBaseDir        = "SHOCK_RUNNER_BASE_DIR"
 	EnvShockMountPath      = "SHOCK_RUNNER_WORKSPACE_MOUNT_PATH"
 	EnvShockGracePeriod    = "SHOCK_RUNNER_TERMINATION_GRACE_PERIOD_SECONDS"
-	EnvShockMinIdle        = "SHOCK_MIN_IDLE"
 	EnvShockHookTimeout    = "SHOCK_HOOK_TIMEOUT_SECONDS"
 	DefaultTemplatePath    = "/etc/shock/sandbox-template.yaml"
 	DefaultMountPath       = "/home/runner"
@@ -57,9 +56,6 @@ type Request struct {
 	WorkOrder []byte
 }
 
-// PreWarm reports whether this is a pre-warming request (no session).
-func (r Request) PreWarm() bool { return r.SessionID == "" }
-
 // Config is the chart-provided configuration.
 type Config struct {
 	Release      string
@@ -70,7 +66,6 @@ type Config struct {
 	WorkspaceMountPath            string
 	BaseDir                       string
 	TerminationGracePeriodSeconds int64
-	MinIdle                       int
 	HookTimeoutSeconds            int
 }
 
@@ -108,13 +103,6 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 			return c, fmt.Errorf("%s: invalid value", EnvShockGracePeriod)
 		}
 		c.TerminationGracePeriodSeconds = n
-	}
-	if v := getenv(EnvShockMinIdle); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 {
-			return c, fmt.Errorf("%s: invalid value", EnvShockMinIdle)
-		}
-		c.MinIdle = n
 	}
 	if v := getenv(EnvShockHookTimeout); v != "" {
 		n, err := strconv.Atoi(v)

@@ -395,6 +395,23 @@ func TestA_Install(t *testing.T) {
 	}
 	helmInstall(t)
 	run(t, "kubectl", "-n", ns, "rollout", "status", "deploy/"+release+"-session-controller", "--timeout=120s")
+	// A rerun on the same cluster starts from leftover Sandboxes at later
+	// orders; the suite assumes none exist for its sessions.
+	leftovers := &sandboxv1beta1.SandboxList{}
+	if err := c.List(context.Background(), leftovers, client.InNamespace(ns)); err != nil {
+		t.Fatal(err)
+	}
+	for i := range leftovers.Items {
+		if err := c.Delete(context.Background(), &leftovers.Items[i]); err != nil && !apierrors.IsNotFound(err) {
+			t.Fatal(err)
+		}
+	}
+	waitFor(t, "leftover sandboxes gone", 3*time.Minute, func() (bool, string) {
+		if err := c.List(context.Background(), leftovers, client.InNamespace(ns)); err != nil {
+			return false, err.Error()
+		}
+		return len(leftovers.Items) == 0, fmt.Sprintf("%d left", len(leftovers.Items))
+	})
 	templateFn = templatePath(t)
 	// The template must strict-decode: the same check the hook does.
 	if _, err := hook.LoadTemplate(templateFn); err != nil {

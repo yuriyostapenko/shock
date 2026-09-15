@@ -214,7 +214,7 @@ unsupported.
 
 | Template | Requirements |
 |---|---|
-| `orchestrator-deployment.yaml` | 2 replicas (value), `claude self-hosted-runner orchestrator --hooks-dir /hooks --environment-secret-file /secrets/environment-secret --expected-spawn-seconds N --hook-timeout N --hook-concurrency N --min-idle N --health-port 8080`. Env secret from `existingSecret` or chart-managed Secret. **Nothing mounts at `/hooks`** — the hook entry point ships in the image; a mount there would shadow it. The Sandbox template ConfigMap mounts read-only at `/etc/shock`. PDB minAvailable 1. Anti-affinity across nodes. Enforce at template level: `hookTimeout + 5 < expectedSpawnSeconds` (the process enforces it at startup; fail earlier in `helm template` via `fail`). |
+| `orchestrator-deployment.yaml` | 2 replicas (value), `claude self-hosted-runner orchestrator --hooks-dir /hooks --environment-secret-file /secrets/environment-secret --expected-spawn-seconds N --hook-timeout N --hook-concurrency N --health-port 8080`. Env secret from `existingSecret` or chart-managed Secret. **Nothing mounts at `/hooks`** — the hook entry point ships in the image; a mount there would shadow it. The Sandbox template ConfigMap mounts read-only at `/etc/shock`. PDB minAvailable 1. Anti-affinity across nodes. Enforce at template level: `hookTimeout + 5 < expectedSpawnSeconds` (the process enforces it at startup; fail earlier in `helm template` via `fail`). |
 | `orchestrator-rbac.yaml` | ServiceAccount + namespaced Role/RoleBinding for the hook: `sandboxes` get/create/patch; `secrets` get/create (ownerReference is included at creation; restrict with a name-prefix convention documented in README; K8s RBAC cannot prefix-match — mitigate by dedicating the runner namespace). |
 | `sandbox-template-configmap.yaml` | One key, `sandbox-template.yaml`: the Sandbox manifest **fully rendered by Helm** — values, the `runner.podTemplate` merge, and the [section 5](#5-naming-and-metadata-conventions-normative) label literals all resolved at chart render time. Mounted read-only at `/etc/shock`. The hook unmarshals it into a typed `Sandbox` and fills in only the session-specific identity fields. Helm does value merging; Go does typed apply; neither reimplements the other. |
 | `session-controller-deployment.yaml` | 1 replica, `strategy: Recreate` (no leader election — every mutation uses the concurrency preconditions in section 6, including GC, so brief overlap during rescheduling is safe), image = `orchestrator.image`, command `shock session-controller`. `SHOCK_RELEASE` from `.Release.Name` ([section 7](#7-deliverable-c--session-controller-go) selector). Readiness/liveness: controller-runtime's `/readyz` and `/healthz` on the manager's health port; readiness gated on the informer cache having synced and the CRD being served. Requests ≤50m/64Mi. |
@@ -234,7 +234,6 @@ orchestrator:
   expectedSpawnSeconds: 180     # p99 wake incl. session-controller latency + pod start + image pull
   hookTimeout: 30
   hookConcurrency: 4
-  minIdle: 0                    # pre-warm OFF by default; see [section 7](#7-deliverable-c--session-controller-go) caveat
 sessionController:
   resyncSeconds: 300                       # informer resync backstop; reconcile is event-driven
   gc: {enabled: true, maxIdle: 336h}      # delete Sandbox+PVC after 14 d asleep
@@ -279,7 +278,7 @@ Ship `values.schema.json` covering every key above (types, required, enums). Lin
 - Sandbox name: `<release>-cs-<sanitized-session-id>` (`cs` for Claude session; the control
   plane's ids arrive as `cse_...`). Both parts RFC 1123 sanitized (lowercase, `[a-z0-9-]`); the
   release part cut to 24 chars, the id part to what fits in 63 with a `-<8-char fnv hash of raw
-  id>` suffix, appended when the id was truncated or altered. Pre-warm Jobs: `<release>-pw-<order-id>`.
+  id>` suffix, appended when the id was truncated or altered.
 - Work-order Secret name: `wo-<sha256(release, session-id, Sandbox UID, order-id)>` (`wo` for work order) using the full
   lowercase hex digest of an unambiguous length-prefixed encoding. Include the Sandbox UID so
   recreation cannot reuse a Secret owned by a deleted Sandbox. Set `immutable: true`, key
@@ -328,7 +327,7 @@ Ship `values.schema.json` covering every key above (types, required, enums). Lin
 - **Object names must be release-scoped too.** Labels alone do not make two releases safe in one
   namespace: a bare `cs-<session-id>` would collide if two releases were
   offered the same session. Order Secret names hash the release and Sandbox UID, and Sandbox
-  and pre-warm Job names carry the release name as prefix (decided 2026-09-15; the first
+  names carry the release name as prefix (decided 2026-09-15; the first
   implementation shipped bare `cs-` names, so a release upgraded across that change creates
   new Sandboxes for existing sessions and GC reaps the old ones). The Sandbox
   name is the PVC name stem and cannot be changed for an existing session.
@@ -363,10 +362,11 @@ URL, attempt counter.
 
 Behavior:
 
-1. **Pre-warm request** (empty session id): if `orchestrator.minIdle > 0`, create an ephemeral
-   unbound runner Job (no PVC, no lock, `--exit-if-unused-min`); otherwise exit 0 no-op. Note in
-   README: unbound standby runners claim arbitrary sessions and therefore never get per-session
-   disks; pre-warm trades warm-disk resume for lower cold-start latency on *new* sessions only.
+1. **Standby (pre-warm) request** (empty session id): exit 2 with a clear log line. The
+   orchestrator only dispatches these with `--min-idle > 0`, which the chart never sets: a
+   standby runner is unbound and cannot have a per-session disk, so SHOCK does not run them
+   (removed 2026-09-15; warm first spawns come from a checkout baked into the runner image
+   instead, per Anthropic's "reuse a pre-warmed checkout").
 2. **Session-bound request**:
    a. Validate inputs and the fully rendered template before writing resources. Read the Sandbox
       directly from the API. Verify release/session identity and reject an object with a
@@ -873,5 +873,5 @@ default, `images/runner/Dockerfile`, built and pinned by the release; sections 3
 session belongs to exactly one release and the hook exits 2 on a Sandbox labeled for another
 release. On a higher attempt the hook also installs the current chart pod template (carrying the
 installed order/Secret), so image and flag changes reach sessions at their next spawn without
-touching sleeping Sandboxes. The session controller uses the `events.k8s.io` recorder. Pre-warm
-runners (`minIdle > 0`) are Jobs with an emptyDir workspace, owned Secret, no account lock.
+touching sleeping Sandboxes. The session controller uses the `events.k8s.io` recorder. Standby
+(pre-warm) orders exit 2; the hook creates no Jobs.

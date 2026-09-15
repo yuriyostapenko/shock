@@ -89,9 +89,8 @@ const (
 	PlaceholderSecretName = "shock-placeholder-never-materialized"
 
 	sandboxPrefix    = "cs" // Claude session: Sandbox names
-	prewarmPrefix    = "pw" // pre-warm: batch/v1 Job names
 	secretPrefix     = "wo" // work order: Secret names
-	maxNameLen       = 63   // Sandbox, Pod and pre-warm Job names stay DNS labels
+	maxNameLen       = 63   // Sandbox and Pod names stay DNS labels
 	maxReleaseLen    = 24   // release part of a scoped name, before "-cs-"
 	hashSuffixLength = 8
 )
@@ -114,12 +113,6 @@ func SelectorLabels(component, release string) map[string]string {
 // truncating changed the id.
 func SandboxName(release, sessionID string) string {
 	return scopedName(release, sandboxPrefix, sessionID)
-}
-
-// PrewarmJobName derives the pre-warm Job name for an order of a release:
-// "<release>-pw-<order-id>", built like SandboxName.
-func PrewarmJobName(release, orderID string) string {
-	return scopedName(release, prewarmPrefix, orderID)
 }
 
 func scopedName(release, kind, raw string) string {

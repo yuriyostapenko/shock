@@ -174,7 +174,6 @@ types and enums. The load-bearing ones:
 | `runner.flags.useAnthropicGitProxy` | `true` | Git goes through `api.anthropic.com` with the session creator's GitHub connection; the runner holds no git credentials. Set `false` when supplying credentials yourself. |
 | `orchestrator.expectedSpawnSeconds` | `180` | Server-side spawn lease, shared by all replicas. Must exceed `hookTimeout + 5` (rendering fails otherwise). Includes the initial suspension round-trip. |
 | `orchestrator.hookTimeout` | `30` | The hook keeps its API work within 80% of this. |
-| `orchestrator.minIdle` | `0` | Pre-warm off. Standby runners are unbound Jobs without a PVC: they lower cold-start latency for *new* sessions only and never get a per-session disk. Enables `batch/jobs` create for the hook. |
 | `sessionController.gc.maxIdle` | `336h` | Sandbox, PVC and Secrets are deleted after 14 days asleep. |
 | `sessionController.zombie.alertAfter` | `5m` | Pods Terminating longer than this raise an Event and alert. SHOCK never force-deletes. |
 | `runner.storage.mountPath` | `/home/runner` | Where the per-session PVC is mounted: the runner user's home. |

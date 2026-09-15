@@ -25,12 +25,6 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "create"]
-  {{- if gt (int .Values.orchestrator.minIdle) 0 }}
-  # Pre-warm standby runners are unbound Jobs (orchestrator.minIdle > 0).
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["get", "create"]
-  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
