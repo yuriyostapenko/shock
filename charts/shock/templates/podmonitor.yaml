@@ -1,0 +1,33 @@
+{{- if .Values.monitoring.enabled }}
+{{- $labels := dict "root" . "component" "monitoring" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "shock.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "shock.labels" $labels | nindent 4 }}
+    {{- with .Values.monitoring.podMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  # Release-scoped: instance + the three components' name values.
+  selector:
+    matchExpressions:
+      - key: app.kubernetes.io/instance
+        operator: In
+        values: [{{ .Release.Name | quote }}]
+      - key: app.kubernetes.io/name
+        operator: In
+        values: ["orchestrator", "session-controller", "runner"]
+  podMetricsEndpoints:
+    - port: health
+      path: /metrics
+      interval: {{ .Values.monitoring.podMonitor.interval }}
+      {{- if .Values.monitoring.podMonitor.dropEmailLabel }}
+      metricRelabelings:
+        # The locked-account series carries the account email; drop it.
+        - action: labeldrop
+          regex: email
+      {{- end }}
+{{- end }}

@@ -1,0 +1,211 @@
+# Default values for shock. agent-sandbox is a prerequisite installed
+# separately: https://github.com/kubernetes-sigs/agent-sandbox
+
+environment:
+  # Existing Secret with key `environment-secret`: the environment key from
+  # the Cloud environments admin page. Required unless secretValue is set.
+  existingSecret: ""
+  # Inline key rendered into a chart-managed Secret. Prefer existingSecret.
+  secretValue: ""
+
+orchestrator:
+  image:
+    repository: ghcr.io/yuriyostapenko/shock
+    tag: ""          # defaults to the chart's appVersion, which the release sets to the same X.Y.Z
+    digest: ""       # sha256:... pinned by the release workflow into the published chart
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  replicas: 2
+  # Spawn lease granted by the control plane: p99 wake incl. image pull and
+  # Pod start. Anthropic allows 10..3600.
+  expectedSpawnSeconds: 180
+  # Hook process budget; must be < expectedSpawnSeconds - 5.
+  hookTimeout: 30
+  hookConcurrency: 4
+  healthPort: 8080
+  extraEnv: []       # e.g. HTTPS_PROXY / NO_PROXY for the orchestrator process
+  extraArgs: []      # appended to the orchestrator command
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  # Empty = preferred anti-affinity across nodes.
+  affinity: {}
+  priorityClassName: ""
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+sessionController:
+  resyncSeconds: 300
+  gc:
+    enabled: true
+    maxIdle: 336h           # delete Sandbox + PVC + work-order Secrets after 14 days asleep
+  zombie:
+    enabled: true
+    alertAfter: 5m          # alarm-only; the session controller never deletes Pods
+  healthPort: 8080          # serves /metrics, /healthz and /readyz
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  priorityClassName: ""
+
+runner:
+  image:
+    repository: ghcr.io/yuriyostapenko/shock-runner   # the default runner image (README); build your own FROM it
+    tag: ""          # defaults to the chart's appVersion
+    digest: ""       # pinned by the release workflow into the published chart
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  # The runner's --base-dir (repository checkouts). Must be storage.mountPath
+  # or below it, and identical on every runner: paths are recorded absolute.
+  baseDir: /home/runner/workspace
+  runtimeClassName: ""    # e.g. kata, gvisor; empty = runc
+  # Runner SIGKILL floor: 75 s at defaults, 105 s with push-outcome.
+  terminationGracePeriodSeconds: 120
+  healthPort: 8080
+  flags:
+    releaseIdleSessionMin: 30
+    killSessionAfterMin: 480
+    exitIfUnusedMin: 10
+    pushOutcomeOnRelease: true
+    # Git via api.anthropic.com with the session creator's GitHub connection;
+    # the image carries no git credentials. Set false to provide your own.
+    useAnthropicGitProxy: true
+  # Appended to the rendered runner args, e.g. ["--exec-path", "/opt/claude/wrapper.sh"].
+  extraArgs: []
+  # Empty = the image entrypoint with the rendered args. Set to replace it;
+  # `args` is then used verbatim and flags/extraArgs are ignored.
+  command: []
+  args: []
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  resources: {}
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    seccompProfile:
+      type: RuntimeDefault
+    capabilities:
+      drop: ["ALL"]
+  # fsGroup makes a fresh PVC writable for the non-root runner.
+  podSecurityContext:
+    fsGroup: 1000
+  serviceAccountName: ""  # no token is ever mounted, whatever account is used
+  # false = user namespace (Kubernetes 1.36 GA; containerd 2.0+/CRI-O 1.25+,
+  # kernel 6.3+): container root is an unprivileged host user, so apt-get
+  # works with runAsUser 0 and runAsNonRoot false. null = host user namespace.
+  hostUsers: null
+  priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podLabels: {}
+  podAnnotations: {}
+  storage:
+    # Per-session PVC mount. The runner's home by default, so everything under
+    # ~ (tools, caches, dotfiles incl. any cached credentials) survives sleep.
+    mountPath: /home/runner
+    className: ""
+    size: 20Gi
+    # Immutable per Sandbox: decide before first install.
+    accessMode: ReadWriteOncePod
+  # Mounted read-only at /etc/claude-code/CLAUDE.md, Claude Code's managed
+  # instructions loaded into every session. Empty mounts nothing.
+  instructions: |
+    # This runner environment
+
+    You are running in a Claude Code self-hosted runner managed by SHOCK.
+
+    - Your home directory is a per-session persistent disk. The repository is
+      checked out under `~/workspace/<owner>/<repo>`. Sessions sleep when idle
+      and resume on the same disk: files, installed tools and caches under `~`
+      are still there next time; running processes are not.
+    - You have no root and no `sudo`; `apt-get` does not work. Install tooling
+      in user space instead: `mise use -g node@22`, `mise use -g go@latest`,
+      `mise use -g <tool>` for most CLIs, `uv python install 3.14`,
+      `uv tool install <package>` or `uvx <package>` for Python tools. If a
+      system library is missing, say so rather than trying to install it.
+    - Git reaches GitHub through Anthropic's proxy with the session creator's
+      credentials. Push work to `claude/*` branches.
+    - `/etc/claude-code` is read-only. Everything under `~` is yours to change.
+
+  # Deep-merged over the rendered podTemplate (maps merge, lists replace);
+  # the hook forces the contract fields afterwards. See README.
+  podTemplate: {}
+
+network:
+  # cilium: CiliumNetworkPolicy with toFQDNs. kubernetes: plain NetworkPolicy,
+  # no FQDN filtering. none: nothing.
+  mode: cilium
+  # Also allow Anthropic's Trusted-level domains (files/anthropic-trusted-domains.txt,
+  # ~200 hosts, broad). Refresh with `make trusted-domains`.
+  anthropicTrustedDomains: true
+  # host or host:port (443 default); a leading "*." matches every subdomain.
+  # Only hosts the Trusted list lacks. With anthropicTrustedDomains false,
+  # list everything yourself; api.anthropic.com is required.
+  # https://code.claude.com/docs/en/self-hosted-environments-deploy#network-requirements
+  allowedFQDNs:
+    # Anthropic: plugin downloads, docs lookups
+    - downloads.claude.ai
+    - claude.com
+    # GitHub release assets, ghcr.io layers
+    - github-releases.githubusercontent.com
+    - pkg-containers.githubusercontent.com
+    # mise: version and JVM metadata
+    - mise.jdx.dev
+    - mise-versions.jdx.dev
+    - mise-java.jdx.dev
+    # Python: PyPy builds
+    - downloads.python.org
+    # Go toolchain downloads
+    - go.dev
+    - dl.google.com
+    # .NET SDK downloads
+    - builds.dotnet.microsoft.com
+    - download.visualstudio.microsoft.com
+    # Java: Adoptium API (Gradle toolchain provisioning, SDKMAN)
+    - api.adoptium.net
+    # Sigstore: cosign keyless verification
+    - "*.sigstore.dev"
+    # Registry layer hosts behind fronts on the Trusted list (anthropics/claude-code#71629).
+    # ECR Public layers need *.cloudfront.net, too broad to include.
+    - production.cloudfront.docker.com
+    - registry.k8s.io
+
+  dns:
+    namespace: kube-system
+    podLabels:
+      k8s-app: kube-dns
+  metadataCIDR: 169.254.169.254/32
+  # cilium mode: TLS SNI must match the entry. CDN addresses are shared, so
+  # address-only rules admit neighbours; wildcards are enforced as patterns.
+  enforceSNI: true
+  # Appended to the lists above: git host, mirrors, internal services.
+  extraAllowedFQDNs: []
+  # Removed from the merged list, written as listed ("*.amazonaws.com").
+  # Removes entries, not reach: a remaining wildcard still admits the host.
+  excludeFQDNs: []
+
+monitoring:
+  enabled: true
+  podMonitor:
+    interval: 30s
+    labels: {}
+    # Drop the `email` label (PII) from the locked-account series.
+    dropEmailLabel: true
+  prometheusRule:
+    labels: {}
+    sleepTransitionFor: 2m

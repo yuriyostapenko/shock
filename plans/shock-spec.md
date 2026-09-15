@@ -23,8 +23,8 @@ Components, per environment:
    Holds the environment secret. Its only extension point is the required `spawn-runner` hook;
    it receives no other lifecycle events.
 2. **spawn-runner hook** — `shock hook spawn-runner`, a subcommand of the same Go binary as the
-   session controller, reached through a two-line exec shim **baked into the image** at
-   `/hooks/spawn-runner`. Nothing is mounted at `/hooks`. Executed by
+   session controller, reached through `/hooks/spawn-runner` **baked into the image** (a symlink to
+   the `shock` binary, which runs the hook when invoked under that name). Nothing is mounted at `/hooks`. Executed by
    the orchestrator once per spawn request. It only *declares* state (create/patch Sandbox, write
    work-order Secret, stamp `pending-spawn` annotation) and exits fast. It never waits for pods.
 3. **agent-sandbox controller** (kubernetes-sigs/agent-sandbox, v1beta1 API) — **hard prerequisite,
@@ -172,15 +172,18 @@ shock/
 ├── internal/hook/                  # deliverable B
 ├── internal/sessioncontroller/            # deliverable C
 ├── images/orchestrator/Dockerfile  # multi-stage: builds cmd/shock, COPYs it beside `claude`,
-│                                   # writes the /hooks/spawn-runner shim; one image serves
+│                                   # links /hooks/spawn-runner to it; one image serves
 │                                   # orchestrator, hook, and session controller
 ├── test/e2e/                       # kind-based e2e incl. agent-sandbox conformance ([section 12](#12-testing-and-acceptance-criteria))
 ├── LICENSE  README.md  CONTRIBUTING.md   # OSS hygiene: Apache-2.0, quickstart, dev guide
 └── .github/workflows/              # lint (ct), unit, e2e, image build+sign
 ```
 
-The runner image itself is **an input, not a deliverable**: the chart takes `runner.image` as a
-value. Document its contract in the chart README: contains `claude` (pinned version ≥ the beta
+The runner image is **an input with a default**: the chart takes `runner.image` as a value and
+defaults it to `images/runner/Dockerfile`, published alongside the orchestrator image and pinned by
+digest in the released chart. The default follows the deploy doc's recipe plus user-space package
+managers (mise, uv) so sessions install tooling without root; operators build their own image
+`FROM` it. Document the contract in the chart README: contains `claude` (pinned version ≥ the beta
 minimum), git ≥ 2.32, a non-root user with writable `$HOME` and `/workspace`, and an optional
 wrapper at a known path for registry credentials ([section 9](#9-registry-credentials-npm--nuget--docker)).
 
@@ -211,7 +214,7 @@ unsupported.
 
 | Template | Requirements |
 |---|---|
-| `orchestrator-deployment.yaml` | 2 replicas (value), `claude self-hosted-runner orchestrator --hooks-dir /hooks --environment-secret-file /secrets/environment-secret --expected-spawn-seconds N --hook-timeout N --hook-concurrency N --min-idle N --health-port 8080`. Env secret from `existingSecret` or chart-managed Secret. **Nothing mounts at `/hooks`** — the hook entry point ships in the image; a mount there would shadow it. The Sandbox template ConfigMap mounts read-only at `/etc/shock`. PDB minAvailable 1. Anti-affinity across nodes. Enforce at template level: `hookTimeout + 5 < expectedSpawnSeconds` (the process enforces it at startup; fail earlier in `helm template` via `fail`). |
+| `orchestrator-deployment.yaml` | 2 replicas (value), `claude self-hosted-runner orchestrator --hooks-dir /hooks --environment-secret-file /secrets/environment-secret --expected-spawn-seconds N --hook-timeout N --hook-concurrency N --health-port 8080`. Env secret from `existingSecret` or chart-managed Secret. **Nothing mounts at `/hooks`** — the hook entry point ships in the image; a mount there would shadow it. The Sandbox template ConfigMap mounts read-only at `/etc/shock`. PDB minAvailable 1. Anti-affinity across nodes. Enforce at template level: `hookTimeout + 5 < expectedSpawnSeconds` (the process enforces it at startup; fail earlier in `helm template` via `fail`). |
 | `orchestrator-rbac.yaml` | ServiceAccount + namespaced Role/RoleBinding for the hook: `sandboxes` get/create/patch; `secrets` get/create (ownerReference is included at creation; restrict with a name-prefix convention documented in README; K8s RBAC cannot prefix-match — mitigate by dedicating the runner namespace). |
 | `sandbox-template-configmap.yaml` | One key, `sandbox-template.yaml`: the Sandbox manifest **fully rendered by Helm** — values, the `runner.podTemplate` merge, and the [section 5](#5-naming-and-metadata-conventions-normative) label literals all resolved at chart render time. Mounted read-only at `/etc/shock`. The hook unmarshals it into a typed `Sandbox` and fills in only the session-specific identity fields. Helm does value merging; Go does typed apply; neither reimplements the other. |
 | `session-controller-deployment.yaml` | 1 replica, `strategy: Recreate` (no leader election — every mutation uses the concurrency preconditions in section 6, including GC, so brief overlap during rescheduling is safe), image = `orchestrator.image`, command `shock session-controller`. `SHOCK_RELEASE` from `.Release.Name` ([section 7](#7-deliverable-c--session-controller-go) selector). Readiness/liveness: controller-runtime's `/readyz` and `/healthz` on the manager's health port; readiness gated on the informer cache having synced and the CRD being served. Requests ≤50m/64Mi. |
@@ -231,14 +234,14 @@ orchestrator:
   expectedSpawnSeconds: 180     # p99 wake incl. session-controller latency + pod start + image pull
   hookTimeout: 30
   hookConcurrency: 4
-  minIdle: 0                    # pre-warm OFF by default; see [section 7](#7-deliverable-c--session-controller-go) caveat
 sessionController:
   resyncSeconds: 300                       # informer resync backstop; reconcile is event-driven
   gc: {enabled: true, maxIdle: 336h}      # delete Sandbox+PVC after 14 d asleep
   zombie: {enabled: true, alertAfter: 5m}  # alarm-only threshold; the session controller never deletes pods
+  maxActiveRunners: 0                      # planned (section 7, "Active-runner cap"): 0 = unlimited
 runner:
   image: {repository: "", tag: ""}   # required; contract in README
-  baseDir: /workspace
+  baseDir: /home/runner/workspace   # --base-dir; at or below storage.mountPath
   runtimeClassName: ""          # e.g. kata / gvisor; empty = runc
   terminationGracePeriodSeconds: 120   # ≥ effective SIGKILL floor (75 s; 105 s with push-outcome)
   flags:
@@ -247,12 +250,16 @@ runner:
     exitIfUnusedMin: 10
     pushOutcomeOnRelease: true
   storage:
+    mountPath: /home/runner       # the PVC is the runner's home; baseDir lives inside it
     className: ""
     size: 20Gi
     accessMode: ReadWriteOncePod   # double-writer guard ([section 7](#7-deliverable-c--session-controller-go)); immutable after creation, see [section 5](#5-naming-and-metadata-conventions-normative)
   extraEnv: []                  # e.g. CLAUDE_ENV_FILE, mirror URLs
   extraVolumes: []              # e.g. registry-credentials Secret for the wrapper ([section 9](#9-registry-credentials-npm--nuget--docker))
   extraVolumeMounts: []
+  instructions: |               # rendered into a ConfigMap and mounted read-only at
+    # This runner environment    # /etc/claude-code/CLAUDE.md, Claude Code's managed-policy
+    ...                          # instructions loaded into every session; "" mounts nothing
   podTemplate: {}               # strategic-merged into the Sandbox podTemplate by Helm;
                                 # the hook forces the load-bearing fields afterwards (section 6)
 network:
@@ -268,9 +275,12 @@ Ship `values.schema.json` covering every key above (types, required, enums). Lin
 
 ## 5. Naming and metadata conventions (normative)
 
-- Sandbox name: `cs-<sanitized-session-id>`; sanitize to RFC 1123 (lowercase, `[a-z0-9-]`),
-  truncate to 46 chars, suffix `-<8-char fnv hash of raw id>` when truncated or altered.
-- Work-order Secret name: `wo-<sha256(release, session-id, Sandbox UID, order-id)>` using the full
+- Sandbox name: `<release>-cs-<sanitized-session-id>` (`cs` for Claude session; the control
+  plane's ids arrive as `cse_...`). Both parts RFC 1123 sanitized (lowercase, `[a-z0-9-]`); the
+  release part cut to 24 chars, the id part to what fits in 63 with a `-<8-char fnv hash of raw
+  id>` suffix, appended when the id was truncated or altered.
+- Work-order Secret name: `<release>-wo-<sha256(release, session-id, Sandbox UID, order-id)>` (`wo` for
+  work order; release part sanitized and cut like the Sandbox name's) using the full
   lowercase hex digest of an unambiguous length-prefixed encoding. Include the Sandbox UID so
   recreation cannot reuse a Secret owned by a deleted Sandbox. Set `immutable: true`, key
   `work-order`, and annotations for raw order ID, attempt, and session ID; never log the JWT. Mounted at
@@ -316,10 +326,11 @@ Ship `values.schema.json` covering every key above (types, required, enums). Lin
   These are separate: labels on a Sandbox CR are **not** propagated to its Pod. Anything that
   selects pods (PodMonitor, NetworkPolicy) sees only the podTemplate set.
 - **Object names must be release-scoped too.** Labels alone do not make two releases safe in one
-  namespace: `cs-<session-id>` collides if two releases are
-  offered the same session. Order Secret names already hash the release and Sandbox UID.
-  Prefix Sandbox names with the release fullname, or document
-  that a given session belongs to exactly one release. Decide before first install — the Sandbox
+  namespace: a bare `cs-<session-id>` would collide if two releases were
+  offered the same session. Order Secret names hash the release and Sandbox UID, and Sandbox
+  names carry the release name as prefix (decided 2026-09-15; the first
+  implementation shipped bare `cs-` names, so a release upgraded across that change creates
+  new Sandboxes for existing sessions and GC reaps the old ones). The Sandbox
   name is the PVC name stem and cannot be changed for an existing session.
   Never label/annotate with the account **email** (PII); use the stable account ID.
 - Annotations on Sandbox:
@@ -338,7 +349,7 @@ Ship `values.schema.json` covering every key above (types, required, enums). Lin
 
 ## 6. Deliverable B — spawn-runner hook
 
-`shock hook spawn-runner`, invoked through the `/hooks/spawn-runner` shim shipped in the image.
+`shock hook spawn-runner`, invoked through the `/hooks/spawn-runner` symlink shipped in the image.
 Shares
 `internal/naming` with the session controller, so the names and labels the hook writes and the selector
 the session controller lists on cannot drift — [section 5](#5-naming-and-metadata-conventions-normative)'s sanitize/truncate/hash rule has exactly one
@@ -352,10 +363,11 @@ URL, attempt counter.
 
 Behavior:
 
-1. **Pre-warm request** (empty session id): if `orchestrator.minIdle > 0`, create an ephemeral
-   unbound runner Job (no PVC, no lock, `--exit-if-unused-min`); otherwise exit 0 no-op. Note in
-   README: unbound standby runners claim arbitrary sessions and therefore never get per-session
-   disks; pre-warm trades warm-disk resume for lower cold-start latency on *new* sessions only.
+1. **Standby (pre-warm) request** (empty session id): exit 2 with a clear log line. The
+   orchestrator only dispatches these with `--min-idle > 0`, which the chart never sets: a
+   standby runner is unbound and cannot have a per-session disk, so SHOCK does not run them
+   (removed 2026-09-15; warm first spawns come from a checkout baked into the runner image
+   instead, per Anthropic's "reuse a pre-warmed checkout").
 2. **Session-bound request**:
    a. Validate inputs and the fully rendered template before writing resources. Read the Sandbox
       directly from the API. Verify release/session identity and reject an object with a
@@ -444,7 +456,7 @@ write wins, no error, no way to opt out:
 | `podTemplate.spec.restartPolicy` | `Never` | pod never reaches a terminal phase, `Finished` never appears, the session never sleeps |
 | `podTemplate.spec.automountServiceAccountToken` | `false` | hands every session a token the design withholds |
 | `podTemplate.metadata.labels` | the [section 5](#5-naming-and-metadata-conventions-normative) common + session set, merged last | PodMonitor and NetworkPolicy stop selecting the pod |
-| `runner` container's `workspace` volumeMount `mountPath` | `runner.baseDir` | warm start silently becomes a fresh clone every session |
+| `runner` container's `workspace` volumeMount `mountPath` | `runner.storage.mountPath` (the runner's home); `runner.baseDir` must be at or below it, else exit 2 | warm start silently becomes a fresh clone every session |
 | `podTemplate.spec.terminationGracePeriodSeconds` | `runner.terminationGracePeriodSeconds` | SIGKILL before the runner finishes releasing its session |
 | `spec.operatingMode` on creation | `Suspended` | no Pod may start before owned order preparation completes |
 
@@ -555,21 +567,61 @@ older than `gc.maxIdle`, no pending-spawn -> GC must not fire;
 `Ready=True`, pending-spawn names the new order, and applied-spawn names the prior order ->
 pending-spawn must remain.
 
+### Active-runner cap (planned, not implemented)
+
+Requirement for a later iteration: the session controller must not wake more than
+`sessionController.maxActiveRunners` sessions at a time (`0` = unlimited, the current
+behavior). The cap bounds cluster spend and node pressure; the orchestrator's own scaling
+knows nothing about cluster capacity.
+
+Design constraints, so the later implementation stays inside this document's invariants:
+
+- The cap is an **admission gate on Wake only**. The hook keeps declaring intent unchanged
+  (it cannot count, and it must stay fast); Sleep, GC, Spawn observation and Zombie are
+  unaffected. A denied Wake leaves the Sandbox `Suspended` with its pending order intact and
+  requeues; it never rewrites intent.
+- **Active** means a Sandbox of this release with `spec.operatingMode: Running`, whatever the
+  Pod's phase: a finished Pod holds its slot until Sleep confirms `Suspended=True`, because the
+  slot is the disk-plus-Pod pair, not the process. Counting comes from the informer cache.
+- **Order of admission is FIFO by `pending-spawn-at`** across waiting Sandboxes, so a session
+  that has waited longest wakes first; a bounce (section 2) releases its slot while suspended and
+  re-enters the queue like any other waiting session.
+- **No overshoot from concurrency**: Wake admissions are serialized inside the single controller
+  replica (one reconcile worker, or an admission mutex around count-and-patch). The brief
+  overlap during a Recreate rollout can overshoot by at most one Wake per overlapping replica;
+  the cap is therefore a soft bound and documented as such.
+- **Interaction with the spawn lease**: a session held back longer than
+  `orchestrator.expectedSpawnSeconds` is re-offered by the control plane with a fresh order id
+  and higher attempt; the hook accepts it as a newer order (section 6), which only rotates the
+  pending Secret. Waiting sessions therefore accumulate re-offers but never lose their place.
+  The monitoring must tell "waiting for capacity" apart from "spawn stuck" (section 11): export
+  `shock_sandboxes_waiting_for_capacity` and a per-Sandbox reason label on the pending-spawn
+  age series, and exclude capacity-held Sandboxes from the `ShockSpawnStuck` alert.
+- Per-account fairness or per-account caps are out of scope for the first cut; record them here
+  if they become necessary.
+
+Acceptance to add to section 12 when implemented: with `maxActiveRunners: 1` and two sessions
+spawned back to back, the second wakes only after the first sleeps; with three sessions the
+admission order matches `pending-spawn-at`; the count of `Running` Sandboxes never exceeds the
+cap across a bounce; a denied Wake leaves annotations and the Secret untouched; `0` restores
+today's behavior byte-for-byte in the e2e suite.
+
 ## 8. Runner container (inside the Sandbox podTemplate)
 
 Command (rendered from values):
 
 ```
 claude self-hosted-runner \
-  --capacity 1 --base-dir /workspace \
+  --capacity 1 --base-dir /home/runner/workspace \
   --environment-secret-file /var/run/claude/work-order/work-order \
   --lock-to-account $(ACCOUNT_ID) \
   --release-idle-session-min 30 --kill-session-after-min 480 \
   --exit-if-unused-min 10 --push-outcome-on-release --health-port 8080
 ```
 
-Requirements: `--base-dir` is the PVC mount so the canonical clone
-(`/workspace/<owner>/<repo>`) survives sleep -> resume is fetch + hard-reset, not a fresh clone.
+Requirements: the PVC is mounted at the runner's home (`runner.storage.mountPath`) and `--base-dir`
+lies inside it, so the canonical clone (`<base-dir>/<owner>/<repo>`) and everything the session
+installs under `~` survive sleep -> resume is fetch + hard-reset, not a fresh clone.
 Same `--base-dir` and `--capacity` on every runner in the environment (recorded absolute paths
 must resolve on resume). Liveness probe on `/healthz`; note in README that it detects a dead
 process only. `terminationGracePeriodSeconds` per values ([section 4](#4-deliverable-a--helm-chart)) — the runner's effective SIGKILL
@@ -745,3 +797,83 @@ cascade and upstream reconciliation tests require kind with the relevant control
 - https://code.claude.com/docs/en/self-hosted-environments-identity (work orders, session token)
 - https://github.com/kubernetes-sigs/agent-sandbox (v1beta1 API, `controllers/sandbox_controller.go`)
 - https://agent-sandbox.sigs.k8s.io/docs/ (Sandbox lifecycle, API reference)
+
+### Verification record (2026-09-14, first implementation)
+
+Pinned: agent-sandbox **v1.0.2** (`sigs.k8s.io/agent-sandbox`, `k8s.io/*` v0.37.0,
+controller-runtime v0.25.1), Go 1.27, Helm 4.2.3 locally (CI pins v4.3.0), kind 0.33 with `kindest/node:v1.35.0` locally (CI matrix v1.35.8 and v1.37.0),
+envtest 1.35.0 and 1.37.0, Claude Code 2.1.270 as the image build default
+(native binary from downloads.claude.ai per the deploy doc's recipe, fetched in a `debian:trixie-slim` stage and
+placed on `gcr.io/distroless/base-debian13:nonroot`; the doc's own example uses bookworm-slim and its version
+floor is 2.1.224). The runtime has no shell, so `/hooks/spawn-runner` is a symlink to `shock`, which dispatches
+on its invocation name; the orchestrator found and accepted the symlinked hook in local runs, and a live
+environment run still has to confirm hook execution end to end.
+
+1. **Hook env vars** (configuration doc, "The spawn-runner hook"): `CLAUDE_RUNNER_WORK_ORDER_FILE`
+   (temp file, deleted after exit), `CLAUDE_RUNNER_ORDER_ID` (idempotency key, safe for
+   Kubernetes names), `CLAUDE_RUNNER_SESSION_ID` / `_SESSION_UUID` (empty for pre-warm),
+   `CLAUDE_RUNNER_ATTEMPT` ("how many spawn requests this session has had", `0` for pre-warm),
+   `CLAUDE_RUNNER_ACCOUNT_ID` (tagged, empty for Claude Tag sessions), `CLAUDE_RUNNER_ACCOUNT_EMAIL`
+   (PII), `CLAUDE_RUNNER_PRIMARY_REPO_URL`, `CLAUDE_RUNNER_POOL_ID`, plus `_ORDER_SERVER_TIME`,
+   `_PRIMARY_REPO_REVISION`, `_REPO_SOURCES`, `_CORRELATION_ID`, `_CLIENT_PLATFORM`. Exit codes:
+   0 submitted, 1 retryable (backoff and re-offer), ≥2 circuit-broken until an Owner retries;
+   stderr tail is surfaced as the failure reason. Re-requests after `--expected-spawn-seconds`
+   carry a fresh order id. The doc describes the attempt as a per-session count of spawn
+   requests and redelivery as the same request; it does not state in so many words that the
+   attempt is stable on redelivery. The implementation therefore treats **order id equality as
+   redelivery regardless of attempt** and uses the attempt only to order distinct orders, so a
+   redelivery carrying a surprising attempt cannot roll state back or be rejected. Observed live
+   (2026-09-15, kind + real orchestrator): a session's **first** spawn request carries
+   `CLAUDE_RUNNER_ATTEMPT=0`; the counter is zero-based, and only the empty session id marks a
+   pre-warming request. The orchestrator executed the symlinked `/hooks/spawn-runner` (no shell in
+   the image) and surfaced the hook's stderr as the nack reason. The default runner image holds no git
+   credentials, so the chart sets `--use-anthropic-git-proxy` by default (`runner.flags.useAnthropicGitProxy`);
+   in the live run the server withheld managed git for the session and the runner cloned through its
+   deprecated clone-URL proxy fallback, which succeeded. After each runner exit the control plane re-offered
+   with a fresh order id and attempt+1, and every re-offer bounced the Sandbox through Suspended cleanly.
+   Idle release (`--release-idle-session-min 10`) pushed the outcome branch, the runner exited 0, Sleep
+   stamped `last-suspended-at`, and a later message woke the Sandbox onto the same PVC: `FETCH_HEAD` was
+   written five seconds after Pod start (fetch, not clone), the previous run's local branch and
+   `_sessions` state were present. Four immutable work-order Secrets remained, one per accepted order.
+2. **Egress list** (deploy doc, "Network requirements"): `api.anthropic.com:443` (control plane,
+   inference, JWKS, git proxy), the git host (443 or 22), and conditionally `downloads.claude.ai`,
+   `storage.googleapis.com`, `code.claude.com`, `claude.com`, `*.frame.claudeusercontent.com`,
+   `registry.npmjs.org`, `http-intake.logs.us5.datadoghq.com`, `browser-intake-us5-datadoghq.com`.
+   Not needed: `statsig.anthropic.com`, `*.sentry.io`, `claude.ai`, `platform.claude.com`. The chart
+   default is the minimum (`api.anthropic.com`, `github.com`); extend `network.allowedFQDNs`.
+3. **Condition and reason strings** (v1.0.2 `api/v1beta1/sandbox_types.go`): `Suspended` with
+   reasons `PodTerminated` (True), `PodTerminating` (False, replaces deprecated `PodNotTerminated`),
+   `PodNotOwned`, `NotSuspended` (False while Running), `PodStateUnknown` (Unknown); `Ready` with
+   `DependenciesReady`, `DependenciesNotReady`, `MultiplePods`, `SandboxSuspended`, `PodSucceeded`,
+   `PodFailed`, `SandboxExpired`, `ReconcilerError`; `Finished` with `PodSucceeded`/`PodFailed`,
+   present only while a terminal owned pod exists; `PodScheduled` mirrored from the pod. The
+   controller imports the constants; the e2e conformance test asserts the literals.
+4. **Work-order delivery**: file flag `--environment-secret-file <path>` or
+   `SELF_HOSTED_RUNNER_ENVIRONMENT_SECRET` (value). The chart mounts the Secret and uses the flag.
+5. **claude flags**: `claude self-hosted-runner --help` and `... orchestrator --help` were run in
+   the built image (Claude Code 2.1.270, native binary). Every flag the chart renders exists under the spelling in
+   section 8: runner `--capacity`, `--base-dir`, `--environment-secret-file`, `--lock-to-account`,
+   `--release-idle-session-min`, `--kill-session-after-min`, `--exit-if-unused-min`,
+   `--push-outcome-on-release`, `--health-port`, `--exec-path`; orchestrator `--hooks-dir`,
+   `--environment-secret-file`, `--expected-spawn-seconds`, `--hook-timeout`, `--hook-concurrency`,
+   `--health-port` (`--min-idle` exists upstream; the chart stopped rendering it on 2026-09-15). `--kill-session-after-min` releases rather than terminates on ≥ 2.1.260.
+6. **kubeVersion**: v1.0.2 pins `k8s.io/*` v0.37.0 → `kubeVersion: ">=1.35.0-0"`.
+7. **Idle-suspend**: v1.0.2 `SandboxSpec` has no auto-suspension field; nothing to opt out of.
+   Re-check on every bump.
+
+Upstream behaviors relied on, re-read in v1.0.2 `controllers/sandbox_controller.go`: a terminal
+pod under `Running` is returned as-is (no recreate); `Suspended` deletes any owned pod regardless
+of phase and reports `PodTerminating` until it is gone; resume recreates the pod from `podTemplate`
+and mounts `<claimTemplate>-<sandboxName>`; two owned pods → `Ready=False/MultiplePods` and the
+controller refuses to act; conditions carry `ObservedGeneration: sandbox.Generation`;
+`Finished` and `PodScheduled` are removed when not applicable, `Suspended` never is; user
+`podTemplate` labels propagate to the pod except `agents.x-k8s.io/*` keys.
+
+Decisions taken where the spec left a choice (2026-09-15 addition: the runner image gained a
+default, `images/runner/Dockerfile`, built and pinned by the release; sections 3 and 4 updated): Sandbox and
+work-order Secret names carry the release as prefix (changed 2026-09-15 from bare `cs-`/`wo-`); a
+session belongs to exactly one release and the hook exits 2 on a Sandbox labeled for another
+release. On a higher attempt the hook also installs the current chart pod template (carrying the
+installed order/Secret), so image and flag changes reach sessions at their next spawn without
+touching sleeping Sandboxes. The session controller uses the `events.k8s.io` recorder. Standby
+(pre-warm) orders exit 2; the hook creates no Jobs.

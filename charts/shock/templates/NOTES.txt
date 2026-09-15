@@ -1,0 +1,11 @@
+SHOCK {{ .Chart.Version }} installed as release {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+Prerequisite: the agent-sandbox controller and its Sandbox CRD
+(sandboxes.agents.x-k8s.io/v1beta1) must be installed separately:
+  https://github.com/kubernetes-sigs/agent-sandbox/releases
+Until it is, the session controller reports not-ready and the spawn-runner
+hook exits 1 (retryable); queued sessions recover on their own once it lands.
+
+Check:
+  kubectl -n {{ .Release.Namespace }} get deploy -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl -n {{ .Release.Namespace }} get sandboxes -l app.kubernetes.io/instance={{ .Release.Name }}

@@ -1,0 +1,14 @@
+{{- if .Values.runner.instructions }}
+{{- $labels := dict "root" . "component" "runner-instructions" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "shock.componentName" $labels }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "shock.labels" $labels | nindent 4 }}
+data:
+  # Mounted at /etc/claude-code/CLAUDE.md in every runner Pod.
+  CLAUDE.md: |
+    {{- .Values.runner.instructions | nindent 4 }}
+{{- end }}

@@ -1,0 +1,3 @@
+# Minimal values used by lint, render and golden tests.
+environment:
+  existingSecret: claude-environment

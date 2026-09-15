@@ -1,0 +1,117 @@
+{{- $mode := .Values.network.mode -}}
+{{- $n := .Values.network -}}
+{{- $fqdns := include "shock.fqdnEntries" . | fromJsonArray -}}
+{{- $components := list "runner" "orchestrator" "session-controller" -}}
+{{- if eq $mode "cilium" }}
+{{- range $component := $components }}
+{{- $labels := dict "root" $ "component" $component }}
+---
+# Default-deny egress for this release's {{ $component }} pods.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "shock.componentName" $labels }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "shock.labels" $labels | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "shock.selectorLabels" $labels | nindent 6 }}
+  egressDeny:
+    - toCIDR:
+        - {{ $n.metadataCIDR }}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $n.dns.namespace }}
+            {{- range $k, $v := $n.dns.podLabels }}
+            {{ $k }}: {{ $v | quote }}
+            {{- end }}
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    {{- if ne $component "runner" }}
+    - toEntities:
+        - kube-apiserver
+    {{- end }}
+    {{- if ne $component "session-controller" }}
+    {{- range $fqdns }}
+    - toFQDNs:
+        {{- if contains "*" .pattern }}
+        - matchPattern: {{ .pattern | quote }}
+        {{- else }}
+        - matchName: {{ .pattern | quote }}
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: {{ .port | quote }}
+              protocol: TCP
+          {{- /* SNI must match: CDN addresses are shared between customers. */}}
+          {{- if $n.enforceSNI }}
+          serverNames:
+            - {{ .pattern | quote }}
+          {{- end }}
+    {{- end }}
+    {{- end }}
+{{- end }}
+{{- else if eq $mode "kubernetes" }}
+{{- $ports := list -}}
+{{- range $fqdns }}{{ if not (has .port $ports) }}{{ $ports = append $ports .port }}{{ end }}{{ end -}}
+{{- range $component := $components }}
+{{- $labels := dict "root" $ "component" $component }}
+---
+# Plain NetworkPolicy cannot filter by name: any address on the allowed ports
+# except the metadata endpoint.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "shock.componentName" $labels }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "shock.labels" $labels | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "shock.selectorLabels" $labels | nindent 6 }}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $n.dns.namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $n.dns.podLabels | nindent 14 }}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - {{ $n.metadataCIDR }}
+      ports:
+        {{- if eq $component "session-controller" }}
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+        {{- else }}
+        {{- range $ports }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+        {{- if eq $component "orchestrator" }}
+        - port: 6443
+          protocol: TCP
+        {{- end }}
+        {{- end }}
+{{- end }}
+{{- end }}

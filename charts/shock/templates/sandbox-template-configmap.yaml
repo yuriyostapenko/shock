@@ -1,0 +1,36 @@
+{{- $labels := dict "root" . "component" "sandbox-template" -}}
+{{- $default := include "shock.runnerPodTemplate" . | fromYaml -}}
+{{- if hasKey $default "Error" -}}
+{{- fail (printf "rendering runner podTemplate: %s" (get $default "Error")) -}}
+{{- end -}}
+{{- $podTemplate := mergeOverwrite $default (deepCopy .Values.runner.podTemplate) -}}
+{{- $sandbox := dict
+  "apiVersion" "agents.x-k8s.io/v1beta1"
+  "kind" "Sandbox"
+  "metadata" (dict "labels" (include "shock.labels" (dict "root" . "component" "runner") | fromYaml))
+  "spec" (dict
+    "operatingMode" "Suspended"
+    "podTemplate" $podTemplate
+    "volumeClaimTemplates" (list (dict
+      "metadata" (dict "name" "workspace" "labels" (include "shock.labels" (dict "root" . "component" "runner") | fromYaml))
+      "spec" (dict
+        "accessModes" (list .Values.runner.storage.accessMode)
+        "resources" (dict "requests" (dict "storage" .Values.runner.storage.size))
+      )
+    ))
+  )
+-}}
+{{- if .Values.runner.storage.className -}}
+{{- $_ := set (index $sandbox.spec.volumeClaimTemplates 0).spec "storageClassName" .Values.runner.storage.className -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "shock.componentName" $labels }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "shock.labels" $labels | nindent 4 }}
+data:
+  # The hook strict-decodes this and stamps the session identity (spec section 4).
+  sandbox-template.yaml: |
+    {{- toYaml $sandbox | nindent 4 }}

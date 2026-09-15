@@ -1,0 +1,27 @@
+# Live test in kind with locally built images and a real environment key.
+# The key goes into a Secret created out of band; never into a values file.
+environment:
+  existingSecret: claude-environment
+orchestrator:
+  image: {repository: shock, tag: dev, pullPolicy: Never}
+  replicas: 1
+  expectedSpawnSeconds: 240
+  pdb:
+    enabled: false
+sessionController:
+  resyncSeconds: 60
+runner:
+  image: {repository: shock-runner, tag: dev, pullPolicy: Never}
+  flags:
+    releaseIdleSessionMin: 10
+    killSessionAfterMin: 120
+    exitIfUnusedMin: 5
+  resources:
+    requests: {cpu: 500m, memory: 1Gi}
+  storage:
+    size: 2Gi
+    accessMode: ReadWriteOnce   # kind's local-path provisioner cannot enforce RWOP
+network:
+  mode: cilium                  # none, unless Cilium replaced kindnet (see AGENTS.md)
+monitoring:
+  enabled: false                # true once kube-prometheus-stack is installed
