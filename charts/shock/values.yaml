@@ -155,7 +155,7 @@ runner:
       are still there next time; running processes are not.
     - You have no root and no `sudo`; `apt-get` does not work. Install tooling
       in user space instead: `mise use -g node@22`, `mise use -g go@latest`,
-      `mise use -g <tool>` for most CLIs, `uv python install 3.12`,
+      `mise use -g <tool>` for most CLIs, `uv python install 3.14`,
       `uv tool install <package>` or `uvx <package>` for Python tools. If a
       system library is missing, say so rather than trying to install it.
     - There is no Docker daemon in this environment.
