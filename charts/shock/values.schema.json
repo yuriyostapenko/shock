@@ -139,6 +139,7 @@
           "additionalProperties": false,
           "required": ["size", "accessMode"],
           "properties": {
+            "mountPath": {"type": "string", "pattern": "^/"},
             "className": {"type": "string"},
             "size": {"type": "string", "pattern": "^[0-9]+(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|k|m)?$"},
             "accessMode": {"type": "string", "enum": ["ReadWriteOncePod", "ReadWriteOnce"]}

@@ -89,7 +89,8 @@ func testConfig(path string) Config {
 		Release:                       testRelease,
 		Namespace:                     "runners",
 		TemplatePath:                  path,
-		BaseDir:                       "/workspace",
+		WorkspaceMountPath:            "/home/runner",
+		BaseDir:                       "/home/runner/workspace",
 		TerminationGracePeriodSeconds: 120,
 		HookTimeoutSeconds:            30,
 	}

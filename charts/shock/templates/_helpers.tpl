@@ -67,6 +67,10 @@ defaultTag, and an empty repository or resolved tag fails the render.
 {{- if and .Values.environment.existingSecret .Values.environment.secretValue -}}
 {{- fail "set only one of environment.existingSecret and environment.secretValue" -}}
 {{- end -}}
+{{- $mount := trimSuffix "/" .Values.runner.storage.mountPath -}}
+{{- if and (ne .Values.runner.baseDir $mount) (not (hasPrefix (printf "%s/" $mount) .Values.runner.baseDir)) -}}
+{{- fail (printf "runner.baseDir (%s) must be runner.storage.mountPath (%s) or a directory below it" .Values.runner.baseDir .Values.runner.storage.mountPath) -}}
+{{- end -}}
 {{- if not (has .Values.network.mode (list "cilium" "kubernetes" "none")) -}}
 {{- fail "network.mode must be cilium, kubernetes or none" -}}
 {{- end -}}
@@ -198,7 +202,7 @@ spec:
       {{- end }}
       volumeMounts:
         - name: workspace
-          mountPath: {{ $r.baseDir | quote }}
+          mountPath: {{ $r.storage.mountPath | quote }}
         - name: work-order
           mountPath: /var/run/claude/work-order
           readOnly: true

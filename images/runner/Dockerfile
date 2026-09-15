@@ -4,12 +4,12 @@
 # debian:trixie-slim, git and openssh-client, the native claude binary verified
 # against the release manifest, and the doc's system git configuration.
 #
-# The runner user (uid 1000, matching the chart's default fsGroup) owns
-# /workspace and its home. The XDG base directories and the npm cache point
-# into /workspace, the per-session PVC, so tooling a session installs survives
-# sleep: mise and uv keep runtimes, tools, Python installs and caches there.
-# Sessions install tooling without root through those preinstalled user-space
-# managers: mise (runtimes and CLIs) and uv (Python and Python tools). apt is
+# The runner user (uid 1000, matching the chart's default fsGroup) owns its
+# home, /home/runner, which the chart mounts the per-session PVC on, with
+# repositories checked out under /home/runner/workspace. Everything a session
+# installs or configures under ~ therefore survives sleep. Sessions install
+# tooling without root through the preinstalled user-space managers: mise
+# (runtimes and CLIs) and uv (Python and Python tools). apt is
 # present for clusters that run the Pod in a user namespace
 # (runner.hostUsers: false with runAsUser 0), where container root is an
 # unprivileged host user. Build your own image FROM this one to add toolchains.
@@ -48,21 +48,16 @@ RUN apt-get update \
  && git config --system --add safe.directory '*' \
  && groupadd --gid 1000 runner \
  && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash runner \
- && mkdir -p /workspace \
- && chown -R runner:runner /workspace /home/runner
+ && mkdir -p /home/runner/workspace \
+ && chown -R runner:runner /home/runner
 COPY --from=fetch --chmod=0755 /out/claude /usr/local/bin/claude
 COPY --from=fetch --chmod=0755 /out/mise-bin /usr/local/bin/mise
 COPY --from=fetch --chmod=0755 /out/uv-bin /usr/local/bin/uv
 COPY --from=fetch --chmod=0755 /out/uvx-bin /usr/local/bin/uvx
 USER 1000
-WORKDIR /workspace
+WORKDIR /home/runner
 ENV HOME=/home/runner \
-    XDG_DATA_HOME=/workspace/.local/share \
-    XDG_STATE_HOME=/workspace/.local/state \
-    XDG_CONFIG_HOME=/workspace/.config \
-    XDG_CACHE_HOME=/workspace/.cache \
-    NPM_CONFIG_CACHE=/workspace/.npm \
-    PATH=/workspace/.local/share/mise/shims:/workspace/.local/bin:/usr/local/bin:/usr/bin:/bin \
+    PATH=/home/runner/.local/share/mise/shims:/home/runner/.local/bin:/usr/local/bin:/usr/bin:/bin \
     DISABLE_AUTOUPDATER=1
 ENTRYPOINT ["claude"]
 CMD ["self-hosted-runner", "--help"]

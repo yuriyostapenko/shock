@@ -94,7 +94,7 @@ func TestFreshSessionCreatesSuspendedSandboxAndOwnedSecret(t *testing.T) {
 			woPath = m.MountPath
 		}
 	}
-	if wsPath != "/workspace" || woPath != naming.WorkOrderMountPath {
+	if wsPath != "/home/runner" || woPath != naming.WorkOrderMountPath {
 		t.Errorf("mounts: workspace=%q work-order=%q", wsPath, woPath)
 	}
 	if !strings.Contains(strings.Join(runner.Args, " "), "--lock-to-account user_01ACC") {
@@ -153,7 +153,7 @@ func TestRedeliveryRepairsCrashedPreparation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyContract(tmpl, Identity{Release: testRelease, Namespace: "runners", SessionID: req.SessionID, AccountID: req.AccountID}, Contract{BaseDir: "/workspace", TerminationGracePeriodSeconds: 120}); err != nil {
+	if err := ApplyContract(tmpl, Identity{Release: testRelease, Namespace: "runners", SessionID: req.SessionID, AccountID: req.AccountID}, Contract{WorkspaceMountPath: "/home/runner", BaseDir: "/home/runner/workspace", TerminationGracePeriodSeconds: 120}); err != nil {
 		t.Fatal(err)
 	}
 	tmpl.Annotations = map[string]string{

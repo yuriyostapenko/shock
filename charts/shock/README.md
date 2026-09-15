@@ -79,16 +79,18 @@ without root:
   (`mise use -g node@22`, `mise use -g go@latest`, `mise use -g jq`).
 - `uv` and `uvx` install Python versions and Python tools into `~/.local`.
 
-The image sets `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CONFIG_HOME`,
-`XDG_CACHE_HOME` and `NPM_CONFIG_CACHE` to paths under `/workspace`, the
-session's PVC, so runtimes, tools and caches a session installs through `mise`,
-`uv` or `npm` survive sleep and are already there on resume. The runner's hard
-reset on resume touches only the repository directory. Runtimes execute from
-the PVC, so the storage class must not mount volumes `noexec`. Tools that
-ignore XDG need their own variable, for example via `runner.extraEnv`:
-`CARGO_HOME=/workspace/.cargo`, `RUSTUP_HOME=/workspace/.rustup`,
-`GOPATH=/workspace/go`, `GRADLE_USER_HOME=/workspace/.gradle`,
-`MAVEN_OPTS=-Dmaven.repo.local=/workspace/.m2`, `NUGET_PACKAGES=/workspace/.nuget/packages`.
+The chart mounts the session's PVC at the runner user's home
+(`runner.storage.mountPath`, default `/home/runner`) and checks repositories out
+below it (`runner.baseDir`, default `/home/runner/workspace`). Everything a
+session installs or configures under `~` therefore survives sleep and is already
+there on resume: `mise` runtimes, `uv` tools and interpreters, the npm cache,
+and any other dotfile. The runner's hard reset on resume touches only the
+repository directory. Two consequences: the storage class must not mount volumes
+`noexec`, since runtimes execute from the disk; and credentials that tools cache
+in dotfiles (`~/.npmrc`, `~/.netrc`, `~/.docker/config.json`) stay on the disk
+until the session is garbage-collected, so prefer short-lived credentials from a
+wrapper. With the git proxy on, the runner wipes `~/.gitconfig` and
+`~/.config/git` at startup.
 
 `apt` is present but needs root. On clusters that support Pod user namespaces
 (Kubernetes 1.36 GA; containerd 2.0+ or CRI-O 1.25+, kernel 6.3+ with
@@ -100,8 +102,8 @@ Pod Security Standards waive the non-root requirement for such Pods.
 **Bring your own runner image** with `FROM ghcr.io/yuriyostapenko/shock-runner:X.Y.Z`
 and add toolchains as root before switching back to `USER 1000`. Whatever the
 image, the contract is: `claude` at 2.1.224 or later, pinned; `git >= 2.32`; a
-non-root user with a writable `$HOME` that can write to the PVC at
-`runner.baseDir`; and, optionally, a credentials wrapper wired with
+non-root user whose `$HOME` is `runner.storage.mountPath`, the PVC, with
+`runner.baseDir` inside it; and, optionally, a credentials wrapper wired with
 `runner.extraArgs: ["--exec-path", "/opt/claude/wrapper.sh"]`.
 
 ## How a session runs
@@ -168,7 +170,8 @@ types and enums. The load-bearing ones:
 | `orchestrator.minIdle` | `0` | Pre-warm off. Standby runners are unbound Jobs without a PVC: they lower cold-start latency for *new* sessions only and never get a per-session disk. Enables `batch/jobs` create for the hook. |
 | `sessionController.gc.maxIdle` | `336h` | Sandbox, PVC and Secrets are deleted after 14 days asleep. |
 | `sessionController.zombie.alertAfter` | `5m` | Pods Terminating longer than this raise an Event and alert. SHOCK never force-deletes. |
-| `runner.baseDir` | `/workspace` | The PVC mount and `--base-dir`. Same on every runner. |
+| `runner.storage.mountPath` | `/home/runner` | Where the per-session PVC is mounted: the runner user's home. |
+| `runner.baseDir` | `/home/runner/workspace` | The runner's `--base-dir`, at or below the mount path. Same on every runner. |
 | `runner.terminationGracePeriodSeconds` | `120` | Runner SIGKILL floor is 75 s at defaults, 105 s with push-outcome. |
 | `runner.storage.accessMode` | `ReadWriteOncePod` | Immutable per session. Decide before first install. |
 | `runner.podTemplate` | `{}` | Deep-merged over the rendered pod template (maps merge, lists replace). |
@@ -186,7 +189,7 @@ forces these fields at spawn time, so an overlay cannot break the lifecycle:
 | `spec.automountServiceAccountToken` | `false` |
 | `spec.terminationGracePeriodSeconds` | `runner.terminationGracePeriodSeconds` |
 | `metadata.labels` | the common and session label set, merged last |
-| `runner` container `workspace` mount path | `runner.baseDir` |
+| `runner` container `workspace` mount path | `runner.storage.mountPath`; `runner.baseDir` must be at or below it |
 | `runner` container `work-order` mount | `/var/run/claude/work-order`, read-only |
 | `spec.operatingMode` on creation | `Suspended` |
 

@@ -165,6 +165,7 @@ func spawn(t *testing.T, o order, tmpl string) (int, string) {
 		"SHOCK_RELEASE="+release,
 		"SHOCK_NAMESPACE="+ns,
 		"SHOCK_TEMPLATE_PATH="+tmpl,
+		"SHOCK_RUNNER_WORKSPACE_MOUNT_PATH=/workspace",
 		"SHOCK_RUNNER_BASE_DIR=/workspace",
 		"SHOCK_RUNNER_TERMINATION_GRACE_PERIOD_SECONDS=20",
 		"SHOCK_HOOK_TIMEOUT_SECONDS=30",
@@ -408,7 +409,7 @@ func TestB_Conformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := hook.ApplyContract(tmpl, hook.Identity{Release: "conformance", Namespace: ns, SessionID: "conf", AccountID: ""}, hook.Contract{BaseDir: "/workspace", TerminationGracePeriodSeconds: 20}); err != nil {
+	if err := hook.ApplyContract(tmpl, hook.Identity{Release: "conformance", Namespace: ns, SessionID: "conf", AccountID: ""}, hook.Contract{WorkspaceMountPath: "/workspace", BaseDir: "/workspace", TerminationGracePeriodSeconds: 20}); err != nil {
 		// The template carries the e2e release label; conformance uses its own identity.
 		if !strings.Contains(err.Error(), "does not match") {
 			t.Fatal(err)
@@ -416,7 +417,7 @@ func TestB_Conformance(t *testing.T) {
 	}
 	tmpl.Labels[naming.LabelInstance] = "conformance"
 	tmpl.Spec.PodTemplate.ObjectMeta.Labels[naming.LabelInstance] = "conformance"
-	if err := hook.ApplyContract(tmpl, hook.Identity{Release: "conformance", Namespace: ns, SessionID: "conf", AccountID: ""}, hook.Contract{BaseDir: "/workspace", TerminationGracePeriodSeconds: 20}); err != nil {
+	if err := hook.ApplyContract(tmpl, hook.Identity{Release: "conformance", Namespace: ns, SessionID: "conf", AccountID: ""}, hook.Contract{WorkspaceMountPath: "/workspace", BaseDir: "/workspace", TerminationGracePeriodSeconds: 20}); err != nil {
 		t.Fatal(err)
 	}
 	// A synthetic work-order Secret, since there is no hook here.

@@ -113,6 +113,7 @@ func (h *Hook) template(id Identity) (*sandboxv1beta1.Sandbox, error) {
 		return nil, nonRetryable("%v", err)
 	}
 	if err := ApplyContract(tmpl, id, Contract{
+		WorkspaceMountPath:            h.Config.WorkspaceMountPath,
 		BaseDir:                       h.Config.BaseDir,
 		TerminationGracePeriodSeconds: h.Config.TerminationGracePeriodSeconds,
 	}); err != nil {

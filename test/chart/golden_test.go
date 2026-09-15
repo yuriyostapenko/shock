@@ -107,7 +107,7 @@ func TestRenderedTemplateSatisfiesContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := hook.ApplyContract(sb, hook.Identity{Release: release, Namespace: "runners", SessionID: "session_x", AccountID: "user_x"},
-		hook.Contract{BaseDir: "/workspace", TerminationGracePeriodSeconds: 120}); err != nil {
+		hook.Contract{WorkspaceMountPath: "/home/runner", BaseDir: "/home/runner/workspace", TerminationGracePeriodSeconds: 120}); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{naming.LabelName, naming.LabelInstance, naming.LabelVersion, naming.LabelManagedBy, naming.LabelPartOf, naming.LabelChart} {
@@ -125,7 +125,7 @@ func TestRenderedTemplateSatisfiesContract(t *testing.T) {
 		t.Error("no component label by design")
 	}
 	args := strings.Join(sb.Spec.PodTemplate.Spec.Containers[0].Args, " ")
-	for _, want := range []string{"--capacity 1", "--base-dir /workspace", "--environment-secret-file /var/run/claude/work-order/work-order",
+	for _, want := range []string{"--capacity 1", "--base-dir /home/runner/workspace", "--environment-secret-file /var/run/claude/work-order/work-order",
 		"--release-idle-session-min 30", "--kill-session-after-min 480", "--exit-if-unused-min 10", "--push-outcome-on-release", "--use-anthropic-git-proxy", "--health-port 8080", "--lock-to-account user_x"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("runner args missing %q: %s", want, args)
@@ -174,7 +174,7 @@ runner:
 	}
 	sb := sandboxTemplate(t, objs)
 	if err := hook.ApplyContract(sb, hook.Identity{Release: release, Namespace: "runners", SessionID: "session_x", AccountID: "user_x"},
-		hook.Contract{BaseDir: "/workspace", TerminationGracePeriodSeconds: 120}); err != nil {
+		hook.Contract{WorkspaceMountPath: "/home/runner", BaseDir: "/home/runner/workspace", TerminationGracePeriodSeconds: 120}); err != nil {
 		t.Fatal(err)
 	}
 	ps := sb.Spec.PodTemplate.Spec
@@ -197,7 +197,7 @@ runner:
 			ws = m.MountPath
 		}
 	}
-	if ws != "/workspace" {
+	if ws != "/home/runner" {
 		t.Errorf("workspace mountPath = %q", ws)
 	}
 	for _, v := range ps.Volumes {
@@ -242,6 +242,10 @@ func TestChartValidation(t *testing.T) {
 	_, stderr, err = helmTemplate(t, "--set", "runner.storage.accessMode=ReadWriteMany")
 	if err == nil {
 		t.Fatalf("RWX must be rejected by the schema: %s", stderr)
+	}
+	_, stderr, err = helmTemplate(t, "--set", "runner.baseDir=/elsewhere")
+	if err == nil || !strings.Contains(stderr, "runner.baseDir") {
+		t.Fatalf("baseDir outside the mount path must fail: %v %s", err, stderr)
 	}
 }
 

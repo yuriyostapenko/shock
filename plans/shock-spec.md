@@ -242,7 +242,7 @@ sessionController:
   maxActiveRunners: 0                      # planned (section 7, "Active-runner cap"): 0 = unlimited
 runner:
   image: {repository: "", tag: ""}   # required; contract in README
-  baseDir: /workspace
+  baseDir: /home/runner/workspace   # --base-dir; at or below storage.mountPath
   runtimeClassName: ""          # e.g. kata / gvisor; empty = runc
   terminationGracePeriodSeconds: 120   # ≥ effective SIGKILL floor (75 s; 105 s with push-outcome)
   flags:
@@ -251,6 +251,7 @@ runner:
     exitIfUnusedMin: 10
     pushOutcomeOnRelease: true
   storage:
+    mountPath: /home/runner       # the PVC is the runner's home; baseDir lives inside it
     className: ""
     size: 20Gi
     accessMode: ReadWriteOncePod   # double-writer guard ([section 7](#7-deliverable-c--session-controller-go)); immutable after creation, see [section 5](#5-naming-and-metadata-conventions-normative)
@@ -448,7 +449,7 @@ write wins, no error, no way to opt out:
 | `podTemplate.spec.restartPolicy` | `Never` | pod never reaches a terminal phase, `Finished` never appears, the session never sleeps |
 | `podTemplate.spec.automountServiceAccountToken` | `false` | hands every session a token the design withholds |
 | `podTemplate.metadata.labels` | the [section 5](#5-naming-and-metadata-conventions-normative) common + session set, merged last | PodMonitor and NetworkPolicy stop selecting the pod |
-| `runner` container's `workspace` volumeMount `mountPath` | `runner.baseDir` | warm start silently becomes a fresh clone every session |
+| `runner` container's `workspace` volumeMount `mountPath` | `runner.storage.mountPath` (the runner's home); `runner.baseDir` must be at or below it, else exit 2 | warm start silently becomes a fresh clone every session |
 | `podTemplate.spec.terminationGracePeriodSeconds` | `runner.terminationGracePeriodSeconds` | SIGKILL before the runner finishes releasing its session |
 | `spec.operatingMode` on creation | `Suspended` | no Pod may start before owned order preparation completes |
 
@@ -604,15 +605,16 @@ Command (rendered from values):
 
 ```
 claude self-hosted-runner \
-  --capacity 1 --base-dir /workspace \
+  --capacity 1 --base-dir /home/runner/workspace \
   --environment-secret-file /var/run/claude/work-order/work-order \
   --lock-to-account $(ACCOUNT_ID) \
   --release-idle-session-min 30 --kill-session-after-min 480 \
   --exit-if-unused-min 10 --push-outcome-on-release --health-port 8080
 ```
 
-Requirements: `--base-dir` is the PVC mount so the canonical clone
-(`/workspace/<owner>/<repo>`) survives sleep -> resume is fetch + hard-reset, not a fresh clone.
+Requirements: the PVC is mounted at the runner's home (`runner.storage.mountPath`) and `--base-dir`
+lies inside it, so the canonical clone (`<base-dir>/<owner>/<repo>`) and everything the session
+installs under `~` survive sleep -> resume is fetch + hard-reset, not a fresh clone.
 Same `--base-dir` and `--capacity` on every runner in the environment (recorded absolute paths
 must resolve on resume). Liveness probe on `/healthz`; note in README that it detects a dead
 process only. `terminationGracePeriodSeconds` per values ([section 4](#4-deliverable-a--helm-chart)) — the runner's effective SIGKILL

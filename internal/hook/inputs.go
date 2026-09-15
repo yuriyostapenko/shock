@@ -35,11 +35,13 @@ const (
 	EnvShockNamespace      = "SHOCK_NAMESPACE"
 	EnvShockTemplatePath   = "SHOCK_TEMPLATE_PATH"
 	EnvShockBaseDir        = "SHOCK_RUNNER_BASE_DIR"
+	EnvShockMountPath      = "SHOCK_RUNNER_WORKSPACE_MOUNT_PATH"
 	EnvShockGracePeriod    = "SHOCK_RUNNER_TERMINATION_GRACE_PERIOD_SECONDS"
 	EnvShockMinIdle        = "SHOCK_MIN_IDLE"
 	EnvShockHookTimeout    = "SHOCK_HOOK_TIMEOUT_SECONDS"
 	DefaultTemplatePath    = "/etc/shock/sandbox-template.yaml"
-	DefaultBaseDir         = "/workspace"
+	DefaultMountPath       = "/home/runner"
+	DefaultBaseDir         = "/home/runner/workspace"
 	DefaultGracePeriodSecs = 120
 	DefaultHookTimeoutSecs = 30
 )
@@ -60,9 +62,12 @@ func (r Request) PreWarm() bool { return r.SessionID == "" }
 
 // Config is the chart-provided configuration.
 type Config struct {
-	Release                       string
-	Namespace                     string
-	TemplatePath                  string
+	Release      string
+	Namespace    string
+	TemplatePath string
+	// WorkspaceMountPath is where the per-session PVC is mounted; BaseDir must
+	// lie under it.
+	WorkspaceMountPath            string
 	BaseDir                       string
 	TerminationGracePeriodSeconds int64
 	MinIdle                       int
@@ -77,12 +82,16 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		Release:                       getenv(EnvShockRelease),
 		Namespace:                     getenv(EnvShockNamespace),
 		TemplatePath:                  getenv(EnvShockTemplatePath),
+		WorkspaceMountPath:            getenv(EnvShockMountPath),
 		BaseDir:                       getenv(EnvShockBaseDir),
 		TerminationGracePeriodSeconds: DefaultGracePeriodSecs,
 		HookTimeoutSeconds:            DefaultHookTimeoutSecs,
 	}
 	if c.TemplatePath == "" {
 		c.TemplatePath = DefaultTemplatePath
+	}
+	if c.WorkspaceMountPath == "" {
+		c.WorkspaceMountPath = DefaultMountPath
 	}
 	if c.BaseDir == "" {
 		c.BaseDir = DefaultBaseDir

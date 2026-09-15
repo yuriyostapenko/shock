@@ -144,7 +144,7 @@ func newHook(t *testing.T, c client.Client, ns string) *hook.Hook {
 		t.Fatal(err)
 	}
 	return &hook.Hook{Client: c, Config: hook.Config{
-		Release: release, Namespace: ns, TemplatePath: p, BaseDir: "/workspace",
+		Release: release, Namespace: ns, TemplatePath: p, WorkspaceMountPath: "/workspace", BaseDir: "/workspace",
 		TerminationGracePeriodSeconds: 120, HookTimeoutSeconds: 30,
 	}}
 }

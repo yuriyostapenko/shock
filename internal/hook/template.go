@@ -3,6 +3,7 @@ package hook
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	sandboxv1beta1 "sigs.k8s.io/agent-sandbox/api/v1beta1"
@@ -43,8 +44,24 @@ type Identity struct {
 
 // Contract holds the values the hook forces onto every podTemplate.
 type Contract struct {
+	// WorkspaceMountPath is the PVC mount path forced onto the runner's
+	// workspace volumeMount; BaseDir (the runner's --base-dir) must be equal
+	// to it or below it so the canonical clone lives on the disk.
+	WorkspaceMountPath            string
 	BaseDir                       string
 	TerminationGracePeriodSeconds int64
+}
+
+// Validate checks the contract's own consistency.
+func (c Contract) Validate() error {
+	if c.WorkspaceMountPath == "" || !strings.HasPrefix(c.WorkspaceMountPath, "/") {
+		return fmt.Errorf("workspace mount path %q must be absolute", c.WorkspaceMountPath)
+	}
+	mount := strings.TrimRight(c.WorkspaceMountPath, "/")
+	if c.BaseDir != mount && !strings.HasPrefix(c.BaseDir, mount+"/") {
+		return fmt.Errorf("runner base dir %q must be the workspace mount path %q or below it, or resumed sessions clone afresh", c.BaseDir, c.WorkspaceMountPath)
+	}
+	return nil
 }
 
 // ValidateAnchors checks that the template still has the anchors the hook
@@ -74,6 +91,9 @@ func ValidateAnchors(sb *sandboxv1beta1.Sandbox) error {
 // template (spec section 6, "Forced fields"). It is idempotent.
 func ApplyContract(sb *sandboxv1beta1.Sandbox, id Identity, c Contract) error {
 	if err := ValidateAnchors(sb); err != nil {
+		return err
+	}
+	if err := c.Validate(); err != nil {
 		return err
 	}
 	if sb.Labels[naming.LabelInstance] != id.Release {
@@ -114,7 +134,7 @@ func ApplyContract(sb *sandboxv1beta1.Sandbox, id Identity, c Contract) error {
 	spec.TerminationGracePeriodSeconds = &grace
 
 	runner := findContainer(spec, naming.RunnerContainerName)
-	forceMount(runner, naming.WorkspaceClaimName, c.BaseDir, false)
+	forceMount(runner, naming.WorkspaceClaimName, c.WorkspaceMountPath, false)
 	forceMount(runner, naming.WorkOrderVolumeName, naming.WorkOrderMountPath, true)
 	if id.AccountID != "" {
 		runner.Args = withLockToAccount(runner.Args, id.AccountID)

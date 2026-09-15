@@ -75,9 +75,11 @@ runner:
     digest: ""       # pinned by the release workflow into the published chart
     pullPolicy: IfNotPresent
   imagePullSecrets: []
-  # Same on every runner in the environment: recorded absolute paths must
-  # resolve on resume. This is the PVC mount path.
-  baseDir: /workspace
+  # The runner's --base-dir, where repositories are checked out. It must be
+  # the PVC mount path (storage.mountPath) or a directory below it, and the
+  # same on every runner in the environment: recorded absolute paths must
+  # resolve on resume.
+  baseDir: /home/runner/workspace
   runtimeClassName: ""    # e.g. kata, gvisor; empty = runc
   # Must cover the runner's SIGKILL floor: 75 s at defaults, 105 s with push-outcome.
   terminationGracePeriodSeconds: 120
@@ -128,6 +130,11 @@ runner:
   podLabels: {}
   podAnnotations: {}
   storage:
+    # Where the per-session PVC is mounted. The default is the runner user's
+    # home, so everything a session installs or configures under ~ survives
+    # sleep; baseDir lives inside it. Anything written there, including
+    # credentials tools cache in dotfiles, stays on the disk until GC.
+    mountPath: /home/runner
     className: ""
     size: 20Gi
     # Immutable after Sandbox creation: existing sessions keep the mode they

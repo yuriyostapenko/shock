@@ -95,6 +95,8 @@ spec:
                   fieldPath: metadata.namespace
             - name: SHOCK_TEMPLATE_PATH
               value: /etc/shock/sandbox-template.yaml
+            - name: SHOCK_RUNNER_WORKSPACE_MOUNT_PATH
+              value: {{ .Values.runner.storage.mountPath | quote }}
             - name: SHOCK_RUNNER_BASE_DIR
               value: {{ .Values.runner.baseDir | quote }}
             - name: SHOCK_RUNNER_TERMINATION_GRACE_PERIOD_SECONDS

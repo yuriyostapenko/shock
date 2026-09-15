@@ -47,7 +47,9 @@ runner:
       drop: ["ALL"]
   podSecurityContext:
     fsGroup: 65534
+  baseDir: /workspace
   storage:
+    mountPath: /workspace
     size: 100Mi
     # kind's local-path provisioner is not a CSI driver; RWOP enforcement
     # needs one, so e2e asserts the configured mode is what the PVC reports.
