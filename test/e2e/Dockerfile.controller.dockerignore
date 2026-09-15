@@ -1,0 +1,3 @@
+# Only the locally built binary is needed for this image.
+*
+!bin/shock-linux
