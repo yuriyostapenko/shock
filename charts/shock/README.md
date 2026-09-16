@@ -160,6 +160,19 @@ Suspended`; the old Pod drains (`Suspended=False/PodTerminating`) and only after
 `Suspended=True` does Wake install the new order. The pod count never exceeds
 one. The hook never rotates a running Pod's JWT.
 
+### Active-session cap
+
+`orchestrator.maxActiveSessions` (default 2, `0` disables) bounds sessions per
+release. The hook lists the release's Sandboxes before creating one or
+accepting a newer order and counts those
+`Running` or holding a pending order. At the cap it exits 1 with "at capacity"
+on stderr: nothing is created, the control plane shows that reason in the
+Activity tab and re-offers the session after its own backoff. Redelivery and
+a bounce onto a session that already holds a slot pass. The count is a
+snapshot, so concurrent hooks can overshoot by up to `hookConcurrency` per
+replica; set `hookConcurrency: 1` for a tighter bound. The session controller
+plays no part; sleeping Sandboxes never count.
+
 ### Template changes reach sessions at their next spawn
 
 When the hook accepts a higher attempt for an existing Sandbox it also installs
@@ -181,6 +194,7 @@ types and enums. The load-bearing ones:
 | `runner.flags.useAnthropicGitProxy` | `true` | Git goes through `api.anthropic.com` with the session creator's GitHub connection; the runner holds no git credentials. Set `false` when supplying credentials yourself. |
 | `orchestrator.expectedSpawnSeconds` | `180` | Server-side spawn lease, shared by all replicas. Must exceed `hookTimeout + 5` (rendering fails otherwise). Includes the initial suspension round-trip. |
 | `orchestrator.hookTimeout` | `30` | The hook keeps its API work within 80% of this. |
+| `orchestrator.maxActiveSessions` | `2` | Sessions running or waiting to start in this release. Beyond it a new session's hook exits 1: the user sees "at capacity" as the reason and the control plane re-offers the session on its own backoff. `0` = unlimited. |
 | `sessionController.gc.maxIdle` | `336h` | Sandbox, PVC and Secrets are deleted after 14 days asleep. |
 | `sessionController.zombie.alertAfter` | `5m` | Pods Terminating longer than this raise an Event and alert. SHOCK never force-deletes. |
 | `runner.storage.mountPath` | `/home/runner` | Where the per-session PVC is mounted: the runner user's home. |
@@ -223,7 +237,7 @@ the dedicated values (`runner.resources`, `runner.extraEnv`, `runner.extraVolume
 ## Namespace, names and RBAC
 
 - Dedicate the namespace to SHOCK. The hook's Role grants `secrets create` and
-  `sandboxes create/patch` namespace-wide because RBAC cannot prefix-match names.
+  `sandboxes list/create/patch` namespace-wide because RBAC cannot prefix-match names.
 - Sandbox names are `<release>-cs-<sanitized session id>` (RFC 1123, at most 63
   chars, plus an 8-char hash when sanitizing or truncating changed the id), so
   releases never collide on names. A session still belongs to exactly one
@@ -316,7 +330,11 @@ spawn-hook failures) and SHOCK's: sleep transition failed (`Finished=True` while
 Running for 2 min), MultiplePods, pending spawn older than
 `expectedSpawnSeconds`, session controller not ready or erroring, and session
 stranded (Pod Terminating beyond `zombie.alertAfter`). The last one needs a
-cluster admin: SHOCK never taints nodes or force-deletes Pods.
+cluster admin: SHOCK never taints nodes or force-deletes Pods. Unless the
+active-session cap is `0`, the spawn-hook alert counts only
+non-retryable results, since exit 1 is then a capacity hold; the info-level
+`ClaudeSessionsBackingOff` fires when sessions stay in backoff longer than
+`monitoring.prometheusRule.backingOffFor`.
 
 Wake-latency SLO query:
 

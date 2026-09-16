@@ -68,7 +68,8 @@ server in envtest, and in a live run against a Claude self-hosted environment
 
 - Anthropic's orchestrator invokes a fast `spawn-runner` hook that only
   declares session intent: create or patch the session's Sandbox, publish an
-  immutable work-order Secret, stamp `pending-spawn`, exit.
+  immutable work-order Secret, stamp `pending-spawn`, exit. At the
+  active-session cap (default 2) it exits 1 and the control plane re-offers.
 - The upstream [agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox)
   controller manages each session's Sandbox, Pod and PVC.
 - SHOCK's session controller is the single sequencer for sleep and wake. Every

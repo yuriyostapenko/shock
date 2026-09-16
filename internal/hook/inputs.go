@@ -33,6 +33,7 @@ const (
 	EnvShockMountPath      = "SHOCK_RUNNER_WORKSPACE_MOUNT_PATH"
 	EnvShockGracePeriod    = "SHOCK_RUNNER_TERMINATION_GRACE_PERIOD_SECONDS"
 	EnvShockHookTimeout    = "SHOCK_HOOK_TIMEOUT_SECONDS"
+	EnvShockMaxActive      = "SHOCK_MAX_ACTIVE_SESSIONS"
 	DefaultTemplatePath    = "/etc/shock/sandbox-template.yaml"
 	DefaultMountPath       = "/home/runner"
 	DefaultBaseDir         = "/home/runner/workspace"
@@ -62,6 +63,8 @@ type Config struct {
 	BaseDir                       string
 	TerminationGracePeriodSeconds int64
 	HookTimeoutSeconds            int
+	// MaxActiveSessions caps Running-or-pending Sandboxes; 0 = unlimited.
+	MaxActiveSessions int
 }
 
 var orderIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$`)
@@ -105,6 +108,13 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 			return c, fmt.Errorf("%s: invalid value", EnvShockHookTimeout)
 		}
 		c.HookTimeoutSeconds = n
+	}
+	if v := getenv(EnvShockMaxActive); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return c, fmt.Errorf("%s: invalid value", EnvShockMaxActive)
+		}
+		c.MaxActiveSessions = n
 	}
 	return c, nil
 }

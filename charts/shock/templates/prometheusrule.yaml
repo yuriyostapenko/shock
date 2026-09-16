@@ -61,11 +61,18 @@ spec:
           annotations:
             summary: "Orchestrator {{ "{{ $labels.pod }}" }}: PollSpawnHints failing"
         - alert: ClaudeOrchestratorSpawnHookFailing
-          expr: sum by (pod) (increase(claude_code_self_hosted_orchestrator_spawn_hooks_total{namespace={{ .Release.Namespace | quote }}, result!="ok"}[5m])) > 3
+          expr: sum by (pod) (increase(claude_code_self_hosted_orchestrator_spawn_hooks_total{namespace={{ .Release.Namespace | quote }}, result{{ if gt (int $o.maxActiveSessions) 0 }}="non_retryable"{{ else }}!="ok"{{ end }}}[5m])) > 3
           for: 5m
           labels: {severity: warning}
           annotations:
             summary: "Orchestrator {{ "{{ $labels.pod }}" }}: >3 spawn-runner hook failures in 5m"
+        - alert: ClaudeSessionsBackingOff
+          expr: max(claude_code_self_hosted_orchestrator_queue_backing_off_sessions{namespace={{ .Release.Namespace | quote }}}) > 0
+          {{- $backoff := .Values.monitoring.prometheusRule.backingOffFor | default "15m" }}
+          for: {{ $backoff }}
+          labels: {severity: info}
+          annotations:
+            summary: "Sessions have been in spawn backoff for {{ $backoff }}: at the active-session cap ({{ $o.maxActiveSessions | default 0 }}) or retryable hook failures"
     - name: {{ .Release.Name }}.shock
       rules:
         - alert: ShockSleepTransitionFailed

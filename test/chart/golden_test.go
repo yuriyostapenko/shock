@@ -451,7 +451,7 @@ func TestEveryObjectCarriesCommonLabelsAndSelectors(t *testing.T) {
 			}
 		}
 	}
-	// RBAC: the session controller never gets pod or secret delete; the hook never gets list/watch.
+	// RBAC: the session controller never gets pod or secret delete; the hook lists only sandboxes and never watches.
 	objs, _, err := helmTemplate(t)
 	if err != nil {
 		t.Fatal(err)
@@ -470,7 +470,7 @@ func TestEveryObjectCarriesCommonLabelsAndSelectors(t *testing.T) {
 				if (rs == "pods" || rs == "secrets") && strings.Contains(joined, "delete") {
 					t.Errorf("%s grants delete on %s", o.GetName(), rs)
 				}
-				if strings.HasSuffix(o.GetName(), "-orchestrator") && (strings.Contains(joined, "list") || strings.Contains(joined, "watch")) {
+				if strings.HasSuffix(o.GetName(), "-orchestrator") && (strings.Contains(joined, "watch") || (rs != "sandboxes" && strings.Contains(joined, "list"))) {
 					t.Errorf("hook role %s must not list/watch %s", o.GetName(), rs)
 				}
 			}
@@ -590,5 +590,83 @@ func TestOrchestratorImageFollowsChartVersion(t *testing.T) {
 	// A malformed digest is rejected by the schema.
 	if _, _, err := helmTemplate(t, "--set", "orchestrator.image.digest=abc"); err == nil {
 		t.Fatal("malformed digest must fail the schema")
+	}
+}
+
+// TestActiveSessionCap: the cap reaches the hook as an env var and switches the
+// hook-failure alert to non-retryable results only.
+func TestActiveSessionCap(t *testing.T) {
+	envValue := func(objs []unstructured.Unstructured, name string) string {
+		dep := find(objs, "Deployment", release+"-shock-orchestrator")
+		if dep == nil {
+			t.Fatal("orchestrator Deployment not rendered")
+		}
+		containers, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
+		for _, c := range containers {
+			env, _, _ := unstructured.NestedSlice(c.(map[string]any), "env")
+			for _, e := range env {
+				em := e.(map[string]any)
+				if em["name"] == name {
+					return fmt.Sprint(em["value"])
+				}
+			}
+		}
+		return ""
+	}
+	ruleField := func(objs []unstructured.Unstructured, alert, field string) string {
+		for _, o := range objs {
+			if o.GetKind() != "PrometheusRule" {
+				continue
+			}
+			groups, _, _ := unstructured.NestedSlice(o.Object, "spec", "groups")
+			for _, g := range groups {
+				rules, _, _ := unstructured.NestedSlice(g.(map[string]any), "rules")
+				for _, r := range rules {
+					rm := r.(map[string]any)
+					if rm["alert"] == alert {
+						return fmt.Sprint(rm[field])
+					}
+				}
+			}
+		}
+		t.Fatalf("alert %s not rendered", alert)
+		return ""
+	}
+	objs, _, err := helmTemplate(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := envValue(objs, "SHOCK_MAX_ACTIVE_SESSIONS"); got != "2" {
+		t.Errorf("default SHOCK_MAX_ACTIVE_SESSIONS = %q, want 2", got)
+	}
+	objs, _, err = helmTemplate(t, "--set", "orchestrator.maxActiveSessions=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := envValue(objs, "SHOCK_MAX_ACTIVE_SESSIONS"); got != "0" {
+		t.Errorf("SHOCK_MAX_ACTIVE_SESSIONS = %q, want 0", got)
+	}
+	if expr := ruleField(objs, "ClaudeOrchestratorSpawnHookFailing", "expr"); !strings.Contains(expr, `result!="ok"`) {
+		t.Errorf("without a cap every non-ok hook result is a failure, got %s", expr)
+	}
+	if got := ruleField(objs, "ClaudeSessionsBackingOff", "for"); got != "15m" {
+		t.Errorf("ClaudeSessionsBackingOff for = %q, want 15m", got)
+	}
+
+	objs, _, err = helmTemplate(t, "--set", "orchestrator.maxActiveSessions=2", "--set", "monitoring.prometheusRule.backingOffFor=30m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := envValue(objs, "SHOCK_MAX_ACTIVE_SESSIONS"); got != "2" {
+		t.Errorf("SHOCK_MAX_ACTIVE_SESSIONS = %q, want 2", got)
+	}
+	if expr := ruleField(objs, "ClaudeOrchestratorSpawnHookFailing", "expr"); !strings.Contains(expr, `result="non_retryable"`) || strings.Contains(expr, `!="ok"`) {
+		t.Errorf("with a cap only non_retryable results are failures, got %s", expr)
+	}
+	if got := ruleField(objs, "ClaudeSessionsBackingOff", "for"); got != "30m" {
+		t.Errorf("ClaudeSessionsBackingOff for = %q, want 30m", got)
+	}
+	if _, _, err := helmTemplate(t, "--set", "orchestrator.maxActiveSessions=-1"); err == nil {
+		t.Error("a negative cap must fail schema validation")
 	}
 }

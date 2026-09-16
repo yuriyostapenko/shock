@@ -101,6 +101,8 @@ spec:
               value: {{ .Values.runner.terminationGracePeriodSeconds | quote }}
             - name: SHOCK_HOOK_TIMEOUT_SECONDS
               value: {{ $o.hookTimeout | quote }}
+            - name: SHOCK_MAX_ACTIVE_SESSIONS
+              value: {{ $o.maxActiveSessions | default 0 | quote }}
             {{- with $o.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
