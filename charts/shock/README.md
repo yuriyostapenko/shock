@@ -198,7 +198,7 @@ types and enums. The load-bearing ones:
 | `orchestrator.expectedSpawnSeconds` | `180` | Server-side spawn lease, shared by all replicas. Must exceed `hookTimeout + 5` (rendering fails otherwise). Includes the initial suspension round-trip. |
 | `orchestrator.hookTimeout` | `30` | The hook keeps its API work within 80% of this. |
 | `orchestrator.maxActiveSessions` | `2` | Sessions running or waiting to start in this release. Beyond it a new session's hook exits 1: the user sees "at capacity" as the reason and the control plane re-offers the session on its own backoff. `0` = unlimited. |
-| `sessionController.gc.maxIdleAge` | `336h` | Sandbox, PVC and Secrets are deleted after 14 days asleep. |
+| `sessionController.gc.maxIdleAge` | `336h` | Sandbox, PVC and Secrets are deleted after 14 days asleep. Renamed from `maxIdle`; drop the old key from your values when upgrading. |
 | `sessionController.gc.maxIdleSessions` | `10` | Asleep Sandboxes kept per release; beyond it the oldest by `last-suspended-at` are deleted. Bounds disk. `0` = unlimited. |
 | `sessionController.zombie.alertAfter` | `5m` | Pods Terminating longer than this raise an Event and alert. SHOCK never force-deletes. |
 | `runner.storage.mountPath` | `/home/runner` | Where the per-session PVC is mounted: the runner user's home. |
