@@ -234,7 +234,7 @@ orchestrator:
   expectedSpawnSeconds: 180     # p99 wake incl. session-controller latency + pod start + image pull
   hookTimeout: 30
   hookConcurrency: 4
-  maxActiveSessions: 0          # hook exits 1 for a new session beyond it ([section 6](#6-deliverable-b--spawn-runner-hook), 2f); 0 = unlimited
+  maxActiveSessions: 2          # hook exits 1 for a new session beyond it ([section 6](#6-deliverable-b--spawn-runner-hook), 2f); 0 = unlimited
 sessionController:
   resyncSeconds: 300                       # informer resync backstop; reconcile is event-driven
   gc: {enabled: true, maxIdle: 336h}      # delete Sandbox+PVC after 14 d asleep
@@ -409,7 +409,7 @@ Behavior:
       progress, or conflicts exceeding the bounded API retry budget → 1. Validation, RBAC,
       template, identity, or immutable Secret mismatch errors → 2. Total runtime stays below
       hookTimeout; retries cover API conflicts only, with no waits or polls for Pods or conditions.
-   f. **Active-session cap** (`orchestrator.maxActiveSessions`, 0 = off). Before creating a
+   f. **Active-session cap** (`orchestrator.maxActiveSessions`, default 2, 0 = off). Before creating a
       Sandbox (2b) or publishing a newer order (2c), list the release's Sandboxes and count those
       not deleting that are `Running` or carry pending-spawn, excluding the session's own. A
       session whose own Sandbox holds a slot is a bounce and passes. At the cap, exit 1 with

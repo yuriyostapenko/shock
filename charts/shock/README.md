@@ -162,8 +162,9 @@ one. The hook never rotates a running Pod's JWT.
 
 ### Active-session cap
 
-With `orchestrator.maxActiveSessions` set, the hook lists the release's
-Sandboxes before creating one or accepting a newer order and counts those
+`orchestrator.maxActiveSessions` (default 2, `0` disables) bounds sessions per
+release. The hook lists the release's Sandboxes before creating one or
+accepting a newer order and counts those
 `Running` or holding a pending order. At the cap it exits 1 with "at capacity"
 on stderr: nothing is created, the control plane shows that reason in the
 Activity tab and re-offers the session after its own backoff. Redelivery and
@@ -193,7 +194,7 @@ types and enums. The load-bearing ones:
 | `runner.flags.useAnthropicGitProxy` | `true` | Git goes through `api.anthropic.com` with the session creator's GitHub connection; the runner holds no git credentials. Set `false` when supplying credentials yourself. |
 | `orchestrator.expectedSpawnSeconds` | `180` | Server-side spawn lease, shared by all replicas. Must exceed `hookTimeout + 5` (rendering fails otherwise). Includes the initial suspension round-trip. |
 | `orchestrator.hookTimeout` | `30` | The hook keeps its API work within 80% of this. |
-| `orchestrator.maxActiveSessions` | `0` | Sessions running or waiting to start in this release. Beyond it a new session's hook exits 1: the user sees "at capacity" as the reason and the control plane re-offers the session on its own backoff. `0` = unlimited. |
+| `orchestrator.maxActiveSessions` | `2` | Sessions running or waiting to start in this release. Beyond it a new session's hook exits 1: the user sees "at capacity" as the reason and the control plane re-offers the session on its own backoff. `0` = unlimited. |
 | `sessionController.gc.maxIdle` | `336h` | Sandbox, PVC and Secrets are deleted after 14 days asleep. |
 | `sessionController.zombie.alertAfter` | `5m` | Pods Terminating longer than this raise an Event and alert. SHOCK never force-deletes. |
 | `runner.storage.mountPath` | `/home/runner` | Where the per-session PVC is mounted: the runner user's home. |
@@ -329,8 +330,8 @@ spawn-hook failures) and SHOCK's: sleep transition failed (`Finished=True` while
 Running for 2 min), MultiplePods, pending spawn older than
 `expectedSpawnSeconds`, session controller not ready or erroring, and session
 stranded (Pod Terminating beyond `zombie.alertAfter`). The last one needs a
-cluster admin: SHOCK never taints nodes or force-deletes Pods. With
-`orchestrator.maxActiveSessions` set, the spawn-hook alert counts only
+cluster admin: SHOCK never taints nodes or force-deletes Pods. Unless the
+active-session cap is `0`, the spawn-hook alert counts only
 non-retryable results, since exit 1 is then a capacity hold; the info-level
 `ClaudeSessionsBackingOff` fires when sessions stay in backoff longer than
 `monitoring.prometheusRule.backingOffFor`.

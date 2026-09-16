@@ -268,9 +268,8 @@ func holdsSlot(sb *sandboxv1beta1.Sandbox) bool {
 		(sb.Spec.OperatingMode == sandboxv1beta1.SandboxOperatingModeRunning || sb.Annotations[naming.AnnotationPendingSpawn] != "")
 }
 
-// checkCapacity exits retryable when other Sandboxes hold MaxActiveSessions
-// slots, so the control plane re-offers the order. A session already holding
-// a slot (bounce) passes; redelivery and superseded orders never get here.
+// checkCapacity exits retryable when other Sandboxes fill MaxActiveSessions;
+// a session already holding a slot passes.
 func (h *Hook) checkCapacity(ctx context.Context, log *slog.Logger, own *sandboxv1beta1.Sandbox, ownName string) error {
 	limit := h.Config.MaxActiveSessions
 	if limit <= 0 || (own != nil && holdsSlot(own)) {

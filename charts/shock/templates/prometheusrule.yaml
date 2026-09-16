@@ -61,7 +61,6 @@ spec:
           annotations:
             summary: "Orchestrator {{ "{{ $labels.pod }}" }}: PollSpawnHints failing"
         - alert: ClaudeOrchestratorSpawnHookFailing
-          {{- /* With a cap, retryable exits are capacity holds, not failures. */}}
           expr: sum by (pod) (increase(claude_code_self_hosted_orchestrator_spawn_hooks_total{namespace={{ .Release.Namespace | quote }}, result{{ if gt (int $o.maxActiveSessions) 0 }}="non_retryable"{{ else }}!="ok"{{ end }}}[5m])) > 3
           for: 5m
           labels: {severity: warning}

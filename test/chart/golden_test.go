@@ -636,8 +636,15 @@ func TestActiveSessionCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got := envValue(objs, "SHOCK_MAX_ACTIVE_SESSIONS"); got != "2" {
+		t.Errorf("default SHOCK_MAX_ACTIVE_SESSIONS = %q, want 2", got)
+	}
+	objs, _, err = helmTemplate(t, "--set", "orchestrator.maxActiveSessions=0")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := envValue(objs, "SHOCK_MAX_ACTIVE_SESSIONS"); got != "0" {
-		t.Errorf("default SHOCK_MAX_ACTIVE_SESSIONS = %q, want 0", got)
+		t.Errorf("SHOCK_MAX_ACTIVE_SESSIONS = %q, want 0", got)
 	}
 	if expr := ruleField(objs, "ClaudeOrchestratorSpawnHookFailing", "expr"); !strings.Contains(expr, `result!="ok"`) {
 		t.Errorf("without a cap every non-ok hook result is a failure, got %s", expr)

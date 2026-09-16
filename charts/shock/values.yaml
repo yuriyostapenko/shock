@@ -22,9 +22,9 @@ orchestrator:
   # Hook process budget; must be < expectedSpawnSeconds - 5.
   hookTimeout: 30
   hookConcurrency: 4
-  # Sessions running or waiting to start. Beyond it the hook exits 1: the user
-  # sees "at capacity" and the control plane re-offers. 0 = unlimited.
-  maxActiveSessions: 0
+  # Sessions running or waiting to start; beyond it the hook exits 1 and the
+  # control plane re-offers. 0 = unlimited.
+  maxActiveSessions: 2
   healthPort: 8080
   extraEnv: []       # e.g. HTTPS_PROXY / NO_PROXY for the orchestrator process
   extraArgs: []      # appended to the orchestrator command
