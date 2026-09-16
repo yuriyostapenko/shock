@@ -254,6 +254,9 @@ runner:
     className: ""
     size: 20Gi
     accessMode: ReadWriteOncePod   # double-writer guard ([section 7](#7-deliverable-c--session-controller-go)); immutable after creation, see [section 5](#5-naming-and-metadata-conventions-normative)
+  resources:                    # Anthropic's per-session starting values (deploy doc, "Size CPU and memory");
+    requests: {cpu: "2", memory: 4Gi}   # memory request = limit, CPU bursts for builds
+    limits: {cpu: "4", memory: 4Gi}
   extraEnv: []                  # e.g. CLAUDE_ENV_FILE, mirror URLs
   extraVolumes: []              # e.g. registry-credentials Secret for the wrapper ([section 9](#9-registry-credentials-npm--nuget--docker))
   extraVolumeMounts: []
@@ -885,3 +888,10 @@ touching sleeping Sandboxes. The session controller uses the `events.k8s.io` rec
    (default 10) deletes the oldest asleep Sandboxes beyond the count, same predicate and
    preconditions as the age rule. The trigger is the affected Sandbox's own reconcile, so the
    count cap acts within `resyncSeconds` of a newer session falling asleep; no extra queue source.
+10. **Resource defaults** (2026-09-16): runner Pods carry Anthropic's per-session starting block
+    (requests 2 CPU / 4Gi, limits 4 CPU / 4Gi, deploy doc "Size CPU and memory for sessions").
+    Live 24 h peaks on kind: orchestrator 184Mi working set and ~5m CPU, session controller 45Mi
+    and ~8m CPU, runner 2.5Gi and ~0.4 CPU (5-min average) for a session running a build; the
+    orchestrator request moved to 100m / 256Mi and the controller to 50m / 128Mi, memory limits
+    unchanged, no CPU limits. The e2e values and the kind live example override the runner block
+    because a kind node cannot schedule 2 CPU / 4Gi requests.

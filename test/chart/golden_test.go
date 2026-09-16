@@ -670,3 +670,36 @@ func TestActiveSessionCap(t *testing.T) {
 		t.Error("a negative cap must fail schema validation")
 	}
 }
+
+// TestResourceDefaults: every Pod the chart produces carries requests and a
+// memory limit; the runner follows Anthropic's per-session sizing.
+func TestResourceDefaults(t *testing.T) {
+	objs, _, err := helmTemplate(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb := sandboxTemplate(t, objs)
+	res := sb.Spec.PodTemplate.Spec.Containers[0].Resources
+	if res.Requests.Memory().String() != "4Gi" || res.Limits.Memory().String() != "4Gi" {
+		t.Errorf("runner memory request/limit = %s/%s, want 4Gi/4Gi", res.Requests.Memory(), res.Limits.Memory())
+	}
+	if res.Requests.Cpu().String() != "2" || res.Limits.Cpu().String() != "4" {
+		t.Errorf("runner cpu request/limit = %s/%s, want 2/4", res.Requests.Cpu(), res.Limits.Cpu())
+	}
+	for _, name := range []string{release + "-shock-orchestrator", release + "-shock-session-controller"} {
+		dep := find(objs, "Deployment", name)
+		if dep == nil {
+			t.Fatalf("%s not rendered", name)
+		}
+		containers, _, _ := unstructured.NestedSlice(dep.Object, "spec", "template", "spec", "containers")
+		r, _, _ := unstructured.NestedMap(containers[0].(map[string]any), "resources")
+		req, _, _ := unstructured.NestedMap(r, "requests")
+		lim, _, _ := unstructured.NestedMap(r, "limits")
+		if req["cpu"] == nil || req["memory"] == nil || lim["memory"] == nil {
+			t.Errorf("%s: want cpu+memory requests and a memory limit, got %v", name, r)
+		}
+		if lim["cpu"] != nil {
+			t.Errorf("%s: control-plane components must not be CPU-throttled, got limit %v", name, lim["cpu"])
+		}
+	}
+}

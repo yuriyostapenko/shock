@@ -24,6 +24,9 @@ runner:
     repository: docker.io/library/busybox
     tag: "1.38"
   terminationGracePeriodSeconds: 20
+  resources:
+    requests: {cpu: 50m, memory: 32Mi}
+    limits: {memory: 128Mi}
   command: ["sh", "-c"]
   args:
     - |

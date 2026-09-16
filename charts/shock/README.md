@@ -204,6 +204,8 @@ types and enums. The load-bearing ones:
 | `runner.storage.mountPath` | `/home/runner` | Where the per-session PVC is mounted: the runner user's home. |
 | `runner.baseDir` | `/home/runner/workspace` | The runner's `--base-dir`, at or below the mount path. Same on every runner. |
 | `runner.terminationGracePeriodSeconds` | `120` | Runner SIGKILL floor is 75 s at defaults, 105 s with push-outcome. |
+| `runner.resources` | 2 CPU / 4Gi requested, 4 CPU / 4Gi limits | Anthropic's starting values for one session ([sizing](https://code.claude.com/docs/en/self-hosted-environments-deploy#size-cpu-and-memory-for-sessions)): memory request equals limit, CPU bursts for builds. Measure a representative build and raise. |
+| `orchestrator.resources`, `sessionController.resources` | 100m / 256Mi and 50m / 128Mi requested, 512Mi and 256Mi limits | Sized from live measurements (~150Mi and <50Mi steady state); CPU is negligible. No CPU limits, so hooks and reconciles are never throttled. |
 | `runner.storage.accessMode` | `ReadWriteOncePod` | Immutable per session. Decide before first install. |
 | `runner.instructions` | environment notes | Markdown mounted at `/etc/claude-code/CLAUDE.md` in every runner Pod, Claude Code's managed-policy instructions: what Claude should know about this runner (persistent home, root-free installs, git proxy). Empty mounts nothing. |
 | `runner.podTemplate` | `{}` | Deep-merged over the rendered pod template (maps merge, lists replace). |
