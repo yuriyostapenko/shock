@@ -48,7 +48,8 @@ sessionController:
   resyncSeconds: 300
   gc:
     enabled: true
-    maxIdle: 336h           # delete Sandbox + PVC + work-order Secrets after 14 days asleep
+    maxIdleAge: 336h        # asleep this long: Sandbox, PVC and work-order Secrets are deleted
+    maxIdleSessions: 10     # asleep Sandboxes kept per release, oldest deleted first; 0 = unlimited
   zombie:
     enabled: true
     alertAfter: 5m          # alarm-only; the session controller never deletes Pods

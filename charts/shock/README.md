@@ -144,9 +144,12 @@ non-root user whose `$HOME` is `runner.storage.mountPath`, the PVC, with
    immutable Secret and pending order, requests suspension, and the controller
    wakes it once suspension is confirmed. The canonical clone is already on
    disk, so the runner does a fetch and hard reset rather than a fresh clone.
-6. After `sessionController.gc.maxIdle` asleep the Sandbox is deleted with UID
-   and resourceVersion preconditions. The PVC and every work-order Secret
-   cascade by ownerReference. Recreating the session later starts with a new disk.
+6. After `sessionController.gc.maxIdleAge` asleep, or when more than
+   `sessionController.gc.maxIdleSessions` are asleep and this is among the
+   oldest, the Sandbox is deleted with UID and resourceVersion preconditions.
+   The PVC and every work-order Secret cascade by ownerReference. Recreating
+   the session later starts with a new disk. The count cap reaches older
+   Sandboxes on their next resync (`sessionController.resyncSeconds`).
 
 The Sandbox `operatingMode` alone is never trusted: every lifecycle decision
 also requires the relevant condition to be True for the current
@@ -195,7 +198,8 @@ types and enums. The load-bearing ones:
 | `orchestrator.expectedSpawnSeconds` | `180` | Server-side spawn lease, shared by all replicas. Must exceed `hookTimeout + 5` (rendering fails otherwise). Includes the initial suspension round-trip. |
 | `orchestrator.hookTimeout` | `30` | The hook keeps its API work within 80% of this. |
 | `orchestrator.maxActiveSessions` | `2` | Sessions running or waiting to start in this release. Beyond it a new session's hook exits 1: the user sees "at capacity" as the reason and the control plane re-offers the session on its own backoff. `0` = unlimited. |
-| `sessionController.gc.maxIdle` | `336h` | Sandbox, PVC and Secrets are deleted after 14 days asleep. |
+| `sessionController.gc.maxIdleAge` | `336h` | Sandbox, PVC and Secrets are deleted after 14 days asleep. |
+| `sessionController.gc.maxIdleSessions` | `10` | Asleep Sandboxes kept per release; beyond it the oldest by `last-suspended-at` are deleted. Bounds disk. `0` = unlimited. |
 | `sessionController.zombie.alertAfter` | `5m` | Pods Terminating longer than this raise an Event and alert. SHOCK never force-deletes. |
 | `runner.storage.mountPath` | `/home/runner` | Where the per-session PVC is mounted: the runner user's home. |
 | `runner.baseDir` | `/home/runner/workspace` | The runner's `--base-dir`, at or below the mount path. Same on every runner. |

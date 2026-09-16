@@ -104,8 +104,9 @@ func runSessionController(args []string) error {
 	namespace := fs.String("namespace", os.Getenv("SHOCK_NAMESPACE"), "namespace to watch")
 	release := fs.String("release", os.Getenv("SHOCK_RELEASE"), "Helm release name (app.kubernetes.io/instance)")
 	resync := fs.Duration("resync", envDuration("SHOCK_RESYNC", 300*time.Second), "informer resync backstop")
-	gcEnabled := fs.Bool("gc-enabled", envBool("SHOCK_GC_ENABLED", true), "delete Sandboxes idle past --gc-max-idle")
-	gcMaxIdle := fs.Duration("gc-max-idle", envDuration("SHOCK_GC_MAX_IDLE", 336*time.Hour), "idle threshold for GC")
+	gcEnabled := fs.Bool("gc-enabled", envBool("SHOCK_GC_ENABLED", true), "delete Sandboxes past --gc-max-idle-age or beyond --gc-max-idle-sessions")
+	gcMaxIdleAge := fs.Duration("gc-max-idle-age", envDuration("SHOCK_GC_MAX_IDLE_AGE", 336*time.Hour), "asleep longer than this is deleted")
+	gcMaxIdleSessions := fs.Int("gc-max-idle-sessions", envInt("SHOCK_GC_MAX_IDLE_SESSIONS", 10), "asleep Sandboxes kept, oldest deleted first; 0 = unlimited")
 	zombieEnabled := fs.Bool("zombie-enabled", envBool("SHOCK_ZOMBIE_ENABLED", true), "emit Events for Pods stuck Terminating")
 	zombieAfter := fs.Duration("zombie-alert-after", envDuration("SHOCK_ZOMBIE_ALERT_AFTER", 5*time.Minute), "Terminating age that counts as stranded")
 	crdInterval := fs.Duration("crd-check-interval", envDuration("SHOCK_CRD_CHECK_INTERVAL", 15*time.Second), "prerequisite re-check interval")
@@ -126,10 +127,11 @@ func runSessionController(args []string) error {
 		ResyncPeriod:     *resync,
 		CRDCheckInterval: *crdInterval,
 		Lifecycle: sessioncontroller.Options{
-			GCEnabled:        *gcEnabled,
-			GCMaxIdle:        *gcMaxIdle,
-			ZombieEnabled:    *zombieEnabled,
-			ZombieAlertAfter: *zombieAfter,
+			GCEnabled:         *gcEnabled,
+			GCMaxIdleAge:      *gcMaxIdleAge,
+			GCMaxIdleSessions: *gcMaxIdleSessions,
+			ZombieEnabled:     *zombieEnabled,
+			ZombieAlertAfter:  *zombieAfter,
 		},
 	})
 }
@@ -161,6 +163,19 @@ func envDuration(key string, def time.Duration) time.Duration {
 		}
 	}
 	return def
+}
+
+func envInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		fmt.Fprintf(os.Stderr, "%s: invalid value %q\n", key, v)
+		os.Exit(2)
+	}
+	return n
 }
 
 func envBool(key string, def bool) bool {

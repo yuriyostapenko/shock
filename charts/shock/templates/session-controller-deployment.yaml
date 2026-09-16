@@ -64,8 +64,10 @@ spec:
               value: {{ printf "%ds" (int $s.resyncSeconds) | quote }}
             - name: SHOCK_GC_ENABLED
               value: {{ $s.gc.enabled | quote }}
-            - name: SHOCK_GC_MAX_IDLE
-              value: {{ $s.gc.maxIdle | quote }}
+            - name: SHOCK_GC_MAX_IDLE_AGE
+              value: {{ $s.gc.maxIdleAge | quote }}
+            - name: SHOCK_GC_MAX_IDLE_SESSIONS
+              value: {{ $s.gc.maxIdleSessions | default 0 | quote }}
             - name: SHOCK_ZOMBIE_ENABLED
               value: {{ $s.zombie.enabled | quote }}
             - name: SHOCK_ZOMBIE_ALERT_AFTER

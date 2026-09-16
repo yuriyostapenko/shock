@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -37,10 +38,14 @@ const (
 
 // Options tune the lifecycle predicates.
 type Options struct {
-	GCEnabled        bool
-	GCMaxIdle        time.Duration
-	ZombieEnabled    bool
-	ZombieAlertAfter time.Duration
+	GCEnabled bool
+	// GCMaxIdleAge deletes a Sandbox asleep longer than this.
+	GCMaxIdleAge time.Duration
+	// GCMaxIdleSessions keeps at most this many asleep Sandboxes, deleting the
+	// oldest first; 0 = unlimited.
+	GCMaxIdleSessions int
+	ZombieEnabled     bool
+	ZombieAlertAfter  time.Duration
 }
 
 // Reconciler reconciles one release's Sandboxes.
@@ -334,32 +339,88 @@ func (r *Reconciler) zombie(sb *sandboxv1beta1.Sandbox, pods []corev1.Pod) time.
 	return requeue
 }
 
-// gc deletes a Sandbox idle past maxIdle with UID and resourceVersion
-// preconditions; PVC and Secrets cascade.
+// idleSince returns when an asleep Sandbox was suspended: operatingMode
+// Suspended, current-generation Suspended=True, no pending order, not deleting.
+func idleSince(sb *sandboxv1beta1.Sandbox) (time.Time, bool, error) {
+	if !sb.DeletionTimestamp.IsZero() || sb.Spec.OperatingMode != sandboxv1beta1.SandboxOperatingModeSuspended ||
+		sb.Annotations[naming.AnnotationPendingSpawn] != "" || !currentGenerationTrue(sb, sandboxv1beta1.SandboxConditionSuspended) {
+		return time.Time{}, false, nil
+	}
+	raw := sb.Annotations[naming.AnnotationLastSuspendedAt]
+	if raw == "" {
+		return time.Time{}, false, nil
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("unreadable %s: %w", naming.AnnotationLastSuspendedAt, err)
+	}
+	return t, true, nil
+}
+
+type idleEntry struct {
+	name string
+	uid  types.UID
+	at   time.Time
+}
+
+// idleVictims lists the release's asleep Sandboxes beyond GCMaxIdleSessions,
+// oldest first (ties by name).
+func (r *Reconciler) idleVictims(ctx context.Context, namespace string) ([]idleEntry, error) {
+	list := &sandboxv1beta1.SandboxList{}
+	if err := r.Client.List(ctx, list, client.InNamespace(namespace),
+		client.MatchingLabels(naming.SelectorLabels(naming.ComponentRunner, r.Release))); err != nil {
+		return nil, fmt.Errorf("listing Sandboxes for the idle-session cap: %w", err)
+	}
+	var idle []idleEntry
+	for i := range list.Items {
+		sb := &list.Items[i]
+		at, ok, err := idleSince(sb)
+		if err != nil || !ok {
+			continue
+		}
+		idle = append(idle, idleEntry{name: sb.Name, uid: sb.UID, at: at})
+	}
+	sort.Slice(idle, func(i, j int) bool {
+		if !idle[i].at.Equal(idle[j].at) {
+			return idle[i].at.Before(idle[j].at)
+		}
+		return idle[i].name < idle[j].name
+	})
+	excess := len(idle) - r.Options.GCMaxIdleSessions
+	if excess <= 0 {
+		return nil, nil
+	}
+	return idle[:excess], nil
+}
+
+// gc deletes an asleep Sandbox past GCMaxIdleAge, or among the oldest beyond
+// GCMaxIdleSessions, with UID and resourceVersion preconditions; PVC and
+// Secrets cascade. The cap reaches older Sandboxes on their resync.
 func (r *Reconciler) gc(ctx context.Context, logger logr, sb *sandboxv1beta1.Sandbox) (bool, time.Duration, error) {
 	if !r.Options.GCEnabled {
 		return false, 0, nil
 	}
-	if sb.Spec.OperatingMode != sandboxv1beta1.SandboxOperatingModeSuspended {
-		return false, 0, nil
-	}
-	if sb.Annotations[naming.AnnotationPendingSpawn] != "" {
-		return false, 0, nil
-	}
-	if !currentGenerationTrue(sb, sandboxv1beta1.SandboxConditionSuspended) {
-		return false, 0, nil
-	}
-	raw := sb.Annotations[naming.AnnotationLastSuspendedAt]
-	if raw == "" {
-		return false, 0, nil
-	}
-	suspendedAt, err := time.Parse(time.RFC3339, raw)
-	if err != nil {
-		return false, 0, fmt.Errorf("unreadable %s: %w", naming.AnnotationLastSuspendedAt, err)
+	suspendedAt, ok, err := idleSince(sb)
+	if err != nil || !ok {
+		return false, 0, err
 	}
 	idle := r.now().Sub(suspendedAt)
-	if idle < r.Options.GCMaxIdle {
-		return false, r.Options.GCMaxIdle - idle, nil
+	reason := ""
+	if idle >= r.Options.GCMaxIdleAge {
+		reason = fmt.Sprintf("Idle for %s (> %s)", idle.Truncate(time.Second), r.Options.GCMaxIdleAge)
+	} else if r.Options.GCMaxIdleSessions > 0 {
+		victims, err := r.idleVictims(ctx, sb.Namespace)
+		if err != nil {
+			return false, 0, err
+		}
+		for _, v := range victims {
+			if v.uid == sb.UID {
+				reason = fmt.Sprintf("Among the %d oldest idle sessions beyond maxIdleSessions %d", len(victims), r.Options.GCMaxIdleSessions)
+			}
+		}
+	}
+	if reason == "" {
+		return false, r.Options.GCMaxIdleAge - idle, nil
 	}
 	uid := sb.UID
 	rv := sb.ResourceVersion
@@ -371,8 +432,8 @@ func (r *Reconciler) gc(ctx context.Context, logger logr, sb *sandboxv1beta1.San
 		// Conflict: re-evaluate on the next pass.
 		return false, 0, fmt.Errorf("gc delete: %w", err)
 	}
-	logger.Info("gc: deleted idle sandbox", "idle", idle.Truncate(time.Second))
-	r.event(sb, corev1.EventTypeNormal, EventGarbageCollected, "Idle for %s (> %s); deleted with PVC and work-order Secrets", idle.Truncate(time.Second), r.Options.GCMaxIdle)
+	logger.Info("gc: deleted idle sandbox", "idle", idle.Truncate(time.Second), "reason", reason)
+	r.event(sb, corev1.EventTypeNormal, EventGarbageCollected, "%s; deleted with PVC and work-order Secrets", reason)
 	return true, 0, nil
 }
 

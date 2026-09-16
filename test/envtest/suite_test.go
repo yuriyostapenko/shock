@@ -180,7 +180,7 @@ func setStatus(t *testing.T, ctx context.Context, c client.Client, sb *sandboxv1
 func newReconciler(c client.Client) *sessioncontroller.Reconciler {
 	return &sessioncontroller.Reconciler{
 		Client: c, Secrets: c, Recorder: events.NewFakeRecorder(100), Release: release,
-		Options: sessioncontroller.Options{GCEnabled: true, GCMaxIdle: time.Hour, ZombieEnabled: true, ZombieAlertAfter: time.Minute},
+		Options: sessioncontroller.Options{GCEnabled: true, GCMaxIdleAge: time.Hour, ZombieEnabled: true, ZombieAlertAfter: time.Minute},
 	}
 }
 
