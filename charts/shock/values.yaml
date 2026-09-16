@@ -136,7 +136,10 @@ runner:
     - Your home directory is a per-session persistent disk. The repository is
       checked out under `~/workspace/<owner>/<repo>`. Sessions sleep when idle
       and resume on the same disk: files, installed tools and caches under `~`
-      are still there next time; running processes are not.
+      are still there next time; running processes are not. The disk of a
+      session idle for a long time, or of one of the oldest idle sessions
+      when the environment is at capacity, may be reclaimed; the session then
+      resumes on a fresh disk. Anything worth keeping belongs in git.
     - You have no root and no `sudo`; `apt-get` does not work. Install tooling
       in user space instead: `mise use -g node@22`, `mise use -g go@latest`,
       `mise use -g <tool>` for most CLIs, `uv python install 3.14`,
@@ -144,7 +147,6 @@ runner:
       system library is missing, say so rather than trying to install it.
     - Git reaches GitHub through Anthropic's proxy with the session creator's
       credentials. Push work to `claude/*` branches.
-    - `/etc/claude-code` is read-only. Everything under `~` is yours to change.
 
   # Deep-merged over the rendered podTemplate (maps merge, lists replace);
   # the hook forces the contract fields afterwards. See README.
