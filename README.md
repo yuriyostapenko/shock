@@ -135,6 +135,12 @@ make image IMAGE=ghcr.io/you/shock:dev
 bin/shock version   # git tag or pseudo-version, commit, commit time, Go version
 ```
 
+Every Sunday `.github/workflows/update-claude.yaml` opens a pull request
+pinning both images to Anthropic's latest Claude Code release (`make
+bump-claude` does the same locally). Its checks run in the workflow itself;
+set an `UPDATE_PR_TOKEN` secret (a token with `contents` and `pull-requests`
+write) if the PR should also trigger CI.
+
 Releases: push a `vX.Y.Z` tag on a `main` commit; `.github/workflows/release.yaml`
 publishes `ghcr.io/yuriyostapenko/shock:X.Y.Z` and
 `ghcr.io/yuriyostapenko/shock-runner:X.Y.Z`, the chart at
