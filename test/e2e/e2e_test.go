@@ -44,6 +44,8 @@ var (
 	templateFn string
 	hookKube   string
 	repoRoot   string
+	// hookExtraEnv is appended to the hook's environment by spawn.
+	hookExtraEnv []string
 )
 
 func TestMain(m *testing.M) {
@@ -173,6 +175,7 @@ func spawn(t *testing.T, o order, tmpl string) (int, string) {
 		hook.EnvAccountID+"=user_e2e",
 		hook.EnvAccountEmail+"=nobody@example.invalid",
 	)
+	cmd.Env = append(cmd.Env, hookExtraEnv...)
 	out, err := cmd.CombinedOutput()
 	code := 0
 	if err != nil {
@@ -904,4 +907,54 @@ runner:
 		t.Errorf("selector label hijacked: %v", pod.Labels)
 	}
 	waitAsleep(t, session, sleepBudget)
+}
+
+// TestH_ActiveSessionCap: at the cap a new session exits 1 and leaves nothing
+// behind; redelivery and a bounce pass; a freed slot admits the same order.
+func TestH_ActiveSessionCap(t *testing.T) {
+	waitFor(t, "no session running or pending", wakeBudget, func() (bool, string) {
+		list := &sandboxv1beta1.SandboxList{}
+		if err := c.List(context.Background(), list, client.InNamespace(ns)); err != nil {
+			return false, err.Error()
+		}
+		var busy []string
+		for i := range list.Items {
+			sb := &list.Items[i]
+			if sb.Spec.OperatingMode == sandboxv1beta1.SandboxOperatingModeRunning || sb.Annotations[naming.AnnotationPendingSpawn] != "" {
+				busy = append(busy, sb.Name)
+			}
+		}
+		return len(busy) == 0, strings.Join(busy, ",")
+	})
+	hookExtraEnv = []string{hook.EnvShockMaxActive + "=1"}
+	t.Cleanup(func() { hookExtraEnv = nil })
+
+	a := order{id: "cap-a", session: "session_e2e_cap_a", attempt: 1, sleep: 3, exit: 0}
+	b := order{id: "cap-b", session: "session_e2e_cap_b", attempt: 1, sleep: 1, exit: 0}
+	mustSpawn(t, a)
+	rejected := func(step string) {
+		t.Helper()
+		code, out := spawn(t, b, templateFn)
+		if code != 1 || !strings.Contains(out, "at capacity: 1 of 1") {
+			t.Fatalf("%s: the second session must exit 1 naming the counts, got %d:\n%s", step, code, out)
+		}
+		if sandbox(t, b.session) != nil {
+			t.Fatalf("%s: a rejected order created a Sandbox", step)
+		}
+		secrets := &corev1.SecretList{}
+		if err := c.List(context.Background(), secrets, client.InNamespace(ns), client.MatchingLabels{naming.LabelSessionID: naming.LabelValue(b.session)}); err != nil {
+			t.Fatal(err)
+		}
+		if len(secrets.Items) != 0 {
+			t.Fatalf("%s: a rejected order created %d Secret(s)", step, len(secrets.Items))
+		}
+	}
+	rejected("while a is pending")
+	mustSpawn(t, a) // redelivery at the cap is already committed
+	waitObserved(t, a.session, a.id, wakeBudget)
+	rejected("while a is running")
+	waitAsleep(t, a.session, sleepBudget)
+	mustSpawn(t, b) // the same order id is accepted once the slot frees
+	waitObserved(t, b.session, b.id, wakeBudget)
+	waitAsleep(t, b.session, sleepBudget)
 }

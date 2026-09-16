@@ -215,7 +215,7 @@ unsupported.
 | Template | Requirements |
 |---|---|
 | `orchestrator-deployment.yaml` | 2 replicas (value), `claude self-hosted-runner orchestrator --hooks-dir /hooks --environment-secret-file /secrets/environment-secret --expected-spawn-seconds N --hook-timeout N --hook-concurrency N --health-port 8080`. Env secret from `existingSecret` or chart-managed Secret. **Nothing mounts at `/hooks`** — the hook entry point ships in the image; a mount there would shadow it. The Sandbox template ConfigMap mounts read-only at `/etc/shock`. PDB minAvailable 1. Anti-affinity across nodes. Enforce at template level: `hookTimeout + 5 < expectedSpawnSeconds` (the process enforces it at startup; fail earlier in `helm template` via `fail`). |
-| `orchestrator-rbac.yaml` | ServiceAccount + namespaced Role/RoleBinding for the hook: `sandboxes` get/create/patch; `secrets` get/create (ownerReference is included at creation; restrict with a name-prefix convention documented in README; K8s RBAC cannot prefix-match — mitigate by dedicating the runner namespace). |
+| `orchestrator-rbac.yaml` | ServiceAccount + namespaced Role/RoleBinding for the hook: `sandboxes` get/list/create/patch (list only for the active-session cap); `secrets` get/create (ownerReference is included at creation; restrict with a name-prefix convention documented in README; K8s RBAC cannot prefix-match — mitigate by dedicating the runner namespace). |
 | `sandbox-template-configmap.yaml` | One key, `sandbox-template.yaml`: the Sandbox manifest **fully rendered by Helm** — values, the `runner.podTemplate` merge, and the [section 5](#5-naming-and-metadata-conventions-normative) label literals all resolved at chart render time. Mounted read-only at `/etc/shock`. The hook unmarshals it into a typed `Sandbox` and fills in only the session-specific identity fields. Helm does value merging; Go does typed apply; neither reimplements the other. |
 | `session-controller-deployment.yaml` | 1 replica, `strategy: Recreate` (no leader election — every mutation uses the concurrency preconditions in section 6, including GC, so brief overlap during rescheduling is safe), image = `orchestrator.image`, command `shock session-controller`. `SHOCK_RELEASE` from `.Release.Name` ([section 7](#7-deliverable-c--session-controller-go) selector). Readiness/liveness: controller-runtime's `/readyz` and `/healthz` on the manager's health port; readiness gated on the informer cache having synced and the CRD being served. Requests ≤50m/64Mi. |
 | `session-controller-rbac.yaml` | `sandboxes` get/list/watch/patch (+delete for GC); `secrets` get (immutable order verification only — **never** `delete`; all order Secrets are reaped by ownerReference when the Sandbox goes); `pods` get/list/watch (spawn observation and zombie *detection* only — **never** `delete`; see [section 7](#7-deliverable-c--session-controller-go)); `events` create/patch. No leases. |
@@ -234,11 +234,11 @@ orchestrator:
   expectedSpawnSeconds: 180     # p99 wake incl. session-controller latency + pod start + image pull
   hookTimeout: 30
   hookConcurrency: 4
+  maxActiveSessions: 0          # hook exits 1 for a new session beyond it ([section 6](#6-deliverable-b--spawn-runner-hook), 2f); 0 = unlimited
 sessionController:
   resyncSeconds: 300                       # informer resync backstop; reconcile is event-driven
   gc: {enabled: true, maxIdle: 336h}      # delete Sandbox+PVC after 14 d asleep
   zombie: {enabled: true, alertAfter: 5m}  # alarm-only threshold; the session controller never deletes pods
-  maxActiveRunners: 0                      # planned (section 7, "Active-runner cap"): 0 = unlimited
 runner:
   image: {repository: "", tag: ""}   # required; contract in README
   baseDir: /home/runner/workspace   # --base-dir; at or below storage.mountPath
@@ -409,6 +409,16 @@ Behavior:
       progress, or conflicts exceeding the bounded API retry budget → 1. Validation, RBAC,
       template, identity, or immutable Secret mismatch errors → 2. Total runtime stays below
       hookTimeout; retries cover API conflicts only, with no waits or polls for Pods or conditions.
+   f. **Active-session cap** (`orchestrator.maxActiveSessions`, 0 = off). Before creating a
+      Sandbox (2b) or publishing a newer order (2c), list the release's Sandboxes and count those
+      not deleting that are `Running` or carry pending-spawn, excluding the session's own. A
+      session whose own Sandbox holds a slot is a bounce and passes. At the cap, exit 1 with
+      "at capacity: N of N sessions are active" on stderr and write nothing: the control plane
+      shows that reason to the user and re-offers the order after its backoff. Redelivery (2c,
+      same order id) and superseded orders never reach the check. The count is a snapshot
+      without a lock: concurrent hooks can overshoot by up to hookConcurrency per replica, so
+      the cap is soft. Exit 2 is deliberately not offered: it blocks the session until an
+      organization Owner presses Retry, which the session creator cannot do.
 
 ### Concurrency protocol (normative)
 
@@ -567,44 +577,17 @@ older than `gc.maxIdle`, no pending-spawn -> GC must not fire;
 `Ready=True`, pending-spawn names the new order, and applied-spawn names the prior order ->
 pending-spawn must remain.
 
-### Active-runner cap (planned, not implemented)
+### Active-session cap (in the hook, not here)
 
-Requirement for a later iteration: the session controller must not wake more than
-`sessionController.maxActiveRunners` sessions at a time (`0` = unlimited, the current
-behavior). The cap bounds cluster spend and node pressure; the orchestrator's own scaling
-knows nothing about cluster capacity.
-
-Design constraints, so the later implementation stays inside this document's invariants:
-
-- The cap is an **admission gate on Wake only**. The hook keeps declaring intent unchanged
-  (it cannot count, and it must stay fast); Sleep, GC, Spawn observation and Zombie are
-  unaffected. A denied Wake leaves the Sandbox `Suspended` with its pending order intact and
-  requeues; it never rewrites intent.
-- **Active** means a Sandbox of this release with `spec.operatingMode: Running`, whatever the
-  Pod's phase: a finished Pod holds its slot until Sleep confirms `Suspended=True`, because the
-  slot is the disk-plus-Pod pair, not the process. Counting comes from the informer cache.
-- **Order of admission is FIFO by `pending-spawn-at`** across waiting Sandboxes, so a session
-  that has waited longest wakes first; a bounce (section 2) releases its slot while suspended and
-  re-enters the queue like any other waiting session.
-- **No overshoot from concurrency**: Wake admissions are serialized inside the single controller
-  replica (one reconcile worker, or an admission mutex around count-and-patch). The brief
-  overlap during a Recreate rollout can overshoot by at most one Wake per overlapping replica;
-  the cap is therefore a soft bound and documented as such.
-- **Interaction with the spawn lease**: a session held back longer than
-  `orchestrator.expectedSpawnSeconds` is re-offered by the control plane with a fresh order id
-  and higher attempt; the hook accepts it as a newer order (section 6), which only rotates the
-  pending Secret. Waiting sessions therefore accumulate re-offers but never lose their place.
-  The monitoring must tell "waiting for capacity" apart from "spawn stuck" (section 11): export
-  `shock_sandboxes_waiting_for_capacity` and a per-Sandbox reason label on the pending-spawn
-  age series, and exclude capacity-held Sandboxes from the `ShockSpawnStuck` alert.
-- Per-account fairness or per-account caps are out of scope for the first cut; record them here
-  if they become necessary.
-
-Acceptance to add to section 12 when implemented: with `maxActiveRunners: 1` and two sessions
-spawned back to back, the second wakes only after the first sleeps; with three sessions the
-admission order matches `pending-spawn-at`; the count of `Running` Sandboxes never exceeds the
-cap across a bounce; a denied Wake leaves annotations and the Secret untouched; `0` restores
-today's behavior byte-for-byte in the e2e suite.
+`orchestrator.maxActiveSessions` is enforced by the hook ([section 6](#6-deliverable-b--spawn-runner-hook), step 2f), not by a
+Wake gate. A controller-side gate was designed first and dropped on 2026-09-16: it would have
+created a Sandbox, a provisioned PVC and one Secret per re-offer for a session that may never
+run, shown the user nothing until the lease expired, and needed a queue, FIFO admission and new
+metrics. Exit 1 from the hook creates nothing, surfaces "at capacity" in the Activity tab and
+leaves queueing to the control plane. The price is that admission order and latency follow the
+control plane's undocumented backoff, and that racing hooks can overshoot by up to
+`hookConcurrency` per replica. Revisit only if that backoff proves unfit; the Wake predicate
+stays the single place a controller-side gate would go.
 
 ## 8. Runner container (inside the Sandbox podTemplate)
 
@@ -662,7 +645,10 @@ PodMonitor selecting `shock.selectorLabels` ([section 5](#5-naming-and-metadata-
 co-resident release's pods — named port
 `health`, path `/metrics`, covering orchestrator + runners + session controller. PrometheusRule with the
 doc's sample alerts (runner poll stale > 60 s; orchestrator disconnected; orchestrator poll stale
-> hookTimeout + margin; circuit-broken > 0; spawn-hook failures) plus chart-specific ones:
+> hookTimeout + margin; circuit-broken > 0; spawn-hook failures — with an active-session cap the
+hook-failure alert counts only `non_retryable` results, since exit 1 is then routine, and an
+info-level alert fires when `queue_backing_off_sessions` stays above zero past
+`monitoring.prometheusRule.backingOffFor`) plus chart-specific ones:
 `Finished=True and operatingMode=Running` for > 2 min (sleep transition failed);
 `MultiplePods` > 0; pending-spawn older than `expectedSpawnSeconds` (SHOCK pod-start stuck —
 covers both a cold start that has not produced an owned Pod and a wake that never fired or never
@@ -755,6 +741,10 @@ documented manual run against a real beta environment):
 - **A `runner.podTemplate` that removes an anchor fails loudly**: renaming the `runner` container
   makes the hook exit 2 rather than create a broken Sandbox.
 - `helm upgrade` with zero sandboxes awake is a no-op for sleeping sessions.
+- **Active-session cap**: with `maxActiveSessions: 1` and one session pending or running, a
+  second session's hook exits 1 naming the counts and creates no Sandbox, PVC or Secret;
+  redelivery of the first session's order exits 0; once the first session sleeps, the same
+  second order is accepted. `0` restores the uncapped behavior byte for byte.
 
 Use envtest or kind for resourceVersion conflicts, UID delete preconditions, immutable Secrets,
 and generation behavior; fake-client predicate tests alone are insufficient. Owner-reference
@@ -877,3 +867,9 @@ release. On a higher attempt the hook also installs the current chart pod templa
 installed order/Secret), so image and flag changes reach sessions at their next spawn without
 touching sleeping Sandboxes. The session controller uses the `events.k8s.io` recorder. Standby
 (pre-warm) orders exit 2; the hook creates no Jobs.
+8. **Active-session cap** (2026-09-16): implemented in the hook as exit 1 with an "at capacity"
+   stderr line (section 6, 2f), after weighing a controller-side Wake gate (section 7). The
+   configuration doc confirms exit 1 means "the session backs off and is re-offered" and that the
+   stderr tail is shown as the failure reason; the re-offer backoff schedule is not documented and
+   is still to be measured against a real environment. Exit 2 was rejected because only an
+   organization Owner can press Retry (cloud-environments doc, "Organization-shared environments").

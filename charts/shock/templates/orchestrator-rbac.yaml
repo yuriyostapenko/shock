@@ -20,7 +20,7 @@ metadata:
 rules:
   - apiGroups: ["agents.x-k8s.io"]
     resources: ["sandboxes"]
-    verbs: ["get", "create", "patch"]
+    verbs: ["get", "list", "create", "patch"]   # list: the active-session cap
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "create"]

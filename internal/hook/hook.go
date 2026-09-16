@@ -140,6 +140,9 @@ func (h *Hook) runSession(ctx context.Context, req Request) error {
 		err := h.Client.Get(ctx, key, sb)
 		switch {
 		case apierrors.IsNotFound(err):
+			if err := h.checkCapacity(ctx, log, nil, tmpl.Name); err != nil {
+				return err
+			}
 			created, cerr := h.createSandbox(ctx, tmpl, req)
 			if apierrors.IsAlreadyExists(cerr) {
 				log.Info("sandbox appeared concurrently; taking the existing-object path")
@@ -251,9 +254,45 @@ func (h *Hook) reconcileExisting(ctx context.Context, log *slog.Logger, sb, tmpl
 	case decisionRedelivery:
 		return h.repairRedelivery(ctx, log, sb, tmpl, req)
 	case decisionNewer:
+		if err := h.checkCapacity(ctx, log, sb, sb.Name); err != nil {
+			return false, err
+		}
 		return h.publishNewer(ctx, log, sb, tmpl, req)
 	}
 	return false, nonRetryable("unreachable decision %d", d)
+}
+
+// holdsSlot reports whether a Sandbox counts against the active-session cap.
+func holdsSlot(sb *sandboxv1beta1.Sandbox) bool {
+	return sb.DeletionTimestamp.IsZero() &&
+		(sb.Spec.OperatingMode == sandboxv1beta1.SandboxOperatingModeRunning || sb.Annotations[naming.AnnotationPendingSpawn] != "")
+}
+
+// checkCapacity exits retryable when other Sandboxes hold MaxActiveSessions
+// slots, so the control plane re-offers the order. A session already holding
+// a slot (bounce) passes; redelivery and superseded orders never get here.
+func (h *Hook) checkCapacity(ctx context.Context, log *slog.Logger, own *sandboxv1beta1.Sandbox, ownName string) error {
+	limit := h.Config.MaxActiveSessions
+	if limit <= 0 || (own != nil && holdsSlot(own)) {
+		return nil
+	}
+	list := &sandboxv1beta1.SandboxList{}
+	if err := h.Client.List(ctx, list, client.InNamespace(h.Config.Namespace),
+		client.MatchingLabels(naming.SelectorLabels(naming.ComponentRunner, h.Config.Release))); err != nil {
+		return classifyAPIError("listing Sandboxes for the active-session cap", err)
+	}
+	active := 0
+	for i := range list.Items {
+		sb := &list.Items[i]
+		if sb.Name != ownName && holdsSlot(sb) {
+			active++
+		}
+	}
+	if active < limit {
+		return nil
+	}
+	log.Info("at capacity; rejecting order for re-offer", "active", active, "limit", limit)
+	return retryable("at capacity: %d of %d sessions are active in this environment; the session is queued and re-offered when a slot frees", active, limit)
 }
 
 // repairRedelivery completes the accepted order's Secret and pointers

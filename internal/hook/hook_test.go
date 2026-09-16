@@ -423,3 +423,124 @@ func TestRequestFromEnv(t *testing.T) {
 		t.Error("order id with a slash must be rejected")
 	}
 }
+
+// capTemplate is a Sandbox of another session counting against the cap.
+func otherSandbox(name string, mode sandboxv1beta1.SandboxOperatingMode, pending string) *sandboxv1beta1.Sandbox {
+	sb := &sandboxv1beta1.Sandbox{}
+	sb.Name = name
+	sb.Namespace = "runners"
+	sb.UID = types.UID("uid-" + name)
+	sb.Labels = map[string]string{
+		naming.LabelName:     naming.ComponentRunner,
+		naming.LabelInstance: testRelease,
+		naming.LabelPartOf:   naming.PartOf,
+	}
+	if pending != "" {
+		sb.Annotations = map[string]string{naming.AnnotationPendingSpawn: pending}
+	}
+	sb.Spec.OperatingMode = mode
+	return sb
+}
+
+func TestCapRejectsNewSessionRetryable(t *testing.T) {
+	c := newFakeClient(t,
+		otherSandbox("running", sandboxv1beta1.SandboxOperatingModeRunning, ""),
+		otherSandbox("waiting", sandboxv1beta1.SandboxOperatingModeSuspended, "o-w"),
+		otherSandbox("asleep", sandboxv1beta1.SandboxOperatingModeSuspended, ""),
+	)
+	cfg := testConfig(writeTemplate(t, testTemplate))
+	cfg.MaxActiveSessions = 2
+	err := run(t, c, cfg, testRequest("order-1", 1))
+	if ExitCodeFor(err) != ExitRetryable || !strings.Contains(err.Error(), "at capacity: 2 of 2") {
+		t.Fatalf("at the cap the hook must exit retryable naming the counts, got %v", err)
+	}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "runners", Name: naming.SandboxName(testRelease, "session_01TEST")}, &sandboxv1beta1.Sandbox{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("a rejected order must create no Sandbox, got %v", err)
+	}
+	if n := len(listSecrets(t, c)); n != 0 {
+		t.Errorf("a rejected order must create no Secret, got %d", n)
+	}
+
+	cfg.MaxActiveSessions = 3
+	if err := run(t, c, cfg, testRequest("order-1", 1)); err != nil {
+		t.Fatalf("below the cap the same order must be accepted: %v", err)
+	}
+}
+
+func TestCapIgnoresSleepingDeletingAndForeignSandboxes(t *testing.T) {
+	deleting := otherSandbox("deleting", sandboxv1beta1.SandboxOperatingModeRunning, "")
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	deleting.Finalizers = []string{"test/hold"}
+	foreign := otherSandbox("foreign", sandboxv1beta1.SandboxOperatingModeRunning, "")
+	foreign.Labels[naming.LabelInstance] = "other-release"
+	c := newFakeClient(t,
+		otherSandbox("asleep", sandboxv1beta1.SandboxOperatingModeSuspended, ""),
+		deleting, foreign,
+	)
+	cfg := testConfig(writeTemplate(t, testTemplate))
+	cfg.MaxActiveSessions = 1
+	if err := run(t, c, cfg, testRequest("order-1", 1)); err != nil {
+		t.Fatalf("sleeping, deleting and foreign Sandboxes must not count: %v", err)
+	}
+}
+
+func TestCapExcludesOwnSandboxAndPassesRedelivery(t *testing.T) {
+	c := newFakeClient(t, otherSandbox("running", sandboxv1beta1.SandboxOperatingModeRunning, ""))
+	cfg := testConfig(writeTemplate(t, testTemplate))
+	cfg.MaxActiveSessions = 2
+	if err := run(t, c, cfg, testRequest("order-1", 1)); err != nil {
+		t.Fatalf("first order: %v", err)
+	}
+	cfg.MaxActiveSessions = 1
+	// Redelivery of the accepted order is already committed: exit 0 at the cap.
+	if err := run(t, c, cfg, testRequest("order-1", 1)); err != nil {
+		t.Fatalf("redelivery at the cap must exit 0: %v", err)
+	}
+	// A bounce onto the session's own slot: its Sandbox is Running.
+	sb := getSandbox(t, c, "session_01TEST")
+	sb.Spec.OperatingMode = sandboxv1beta1.SandboxOperatingModeRunning
+	delete(sb.Annotations, naming.AnnotationPendingSpawn)
+	if err := c.Update(context.Background(), sb); err != nil {
+		t.Fatal(err)
+	}
+	cfg.MaxActiveSessions = 1
+	if err := run(t, c, cfg, testRequest("order-2", 2)); err != nil {
+		t.Fatalf("a newer order for a session holding a slot must be accepted: %v", err)
+	}
+	// Now the other Running Sandbox alone fills the cap and this session is asleep.
+	sb = getSandbox(t, c, "session_01TEST")
+	sb.Spec.OperatingMode = sandboxv1beta1.SandboxOperatingModeSuspended
+	delete(sb.Annotations, naming.AnnotationPendingSpawn)
+	if err := c.Update(context.Background(), sb); err != nil {
+		t.Fatal(err)
+	}
+	err := run(t, c, cfg, testRequest("order-3", 3))
+	if ExitCodeFor(err) != ExitRetryable {
+		t.Fatalf("a newer order for a sleeping session at the cap must exit retryable, got %v", err)
+	}
+	if got := getSandbox(t, c, "session_01TEST").Annotations[naming.AnnotationLastOrderID]; got != "order-2" {
+		t.Errorf("a rejected order must leave intent untouched, last-order-id = %s", got)
+	}
+}
+
+func TestConfigFromEnvMaxActive(t *testing.T) {
+	base := map[string]string{EnvShockRelease: "r", EnvShockNamespace: "n"}
+	get := func(extra map[string]string) func(string) string {
+		return func(k string) string {
+			if v, ok := extra[k]; ok {
+				return v
+			}
+			return base[k]
+		}
+	}
+	if c, err := ConfigFromEnv(get(nil)); err != nil || c.MaxActiveSessions != 0 {
+		t.Fatalf("default must be unlimited: %+v %v", c, err)
+	}
+	if c, err := ConfigFromEnv(get(map[string]string{EnvShockMaxActive: "3"})); err != nil || c.MaxActiveSessions != 3 {
+		t.Fatalf("want 3: %+v %v", c, err)
+	}
+	if _, err := ConfigFromEnv(get(map[string]string{EnvShockMaxActive: "-1"})); err == nil {
+		t.Fatal("negative cap must be rejected")
+	}
+}
