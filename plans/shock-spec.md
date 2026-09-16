@@ -100,7 +100,7 @@ stateDiagram-v2
     RunningPod --> Suspending: hook patches Suspended<br/>stale Running + new spawn request
     Suspending --> Asleep: pod gone<br/>Suspended flips False/PodTerminating to True
     Asleep --> RunningNoPod: session controller Wake<br/>current-generation Suspended=True<br/>set Running, order template and applied-spawn
-    Asleep --> [*]: GC, last-suspended-at older than maxIdle
+    Asleep --> [*]: GC, last-suspended-at older than maxIdleAge<br/>or among the oldest beyond maxIdleSessions
 ```
 
 `RunningPod` means that the order has produced a new owned runner Pod and SHOCK has acknowledged
@@ -237,7 +237,7 @@ orchestrator:
   maxActiveSessions: 2          # hook exits 1 for a new session beyond it ([section 6](#6-deliverable-b--spawn-runner-hook), 2f); 0 = unlimited
 sessionController:
   resyncSeconds: 300                       # informer resync backstop; reconcile is event-driven
-  gc: {enabled: true, maxIdle: 336h}      # delete Sandbox+PVC after 14 d asleep
+  gc: {enabled: true, maxIdleAge: 336h, maxIdleSessions: 10}  # delete Sandbox+PVC after 14 d asleep, or the oldest beyond 10 asleep
   zombie: {enabled: true, alertAfter: 5m}  # alarm-only threshold; the session controller never deletes pods
 runner:
   image: {repository: "", tag: ""}   # required; contract in README
@@ -542,9 +542,14 @@ drive the next reconcile; do not continue evaluating predicates against the pre-
   is the only way to get two pods on one PVC. Resolving a stranded session is out of scope
   ([section 2](#2-architecture-fixed-decisions) non-goals): alert and stop.
 - **GC** (gated by gc.enabled): operatingMode Suspended, current-generation Suspended=True,
-  last-suspended-at older than gc.maxIdle, and no pending-spawn -> delete Sandbox with both UID
-  and resourceVersion preconditions. On conflict, re-read and re-evaluate; never retry an
-  unconditional delete. The PVC and all immutable order Secrets cascade by ownerReference.
+  no pending-spawn, and either last-suspended-at older than gc.maxIdleAge or, with
+  gc.maxIdleSessions > 0, this Sandbox among the oldest asleep ones (by last-suspended-at, ties
+  by name) beyond that count -> delete Sandbox with both UID and resourceVersion preconditions.
+  The count comes from the informer cache and only asleep Sandboxes by the same predicate
+  count. On conflict, re-read and re-evaluate; never retry an unconditional delete. The PVC
+  and all immutable order Secrets cascade by ownerReference. A Sandbox pushed past the count
+  by a newer one falling asleep is reached on its resync, so the count cap acts within
+  resyncSeconds.
 - **Alarm**: `Ready=False/MultiplePods` -> emit a Kubernetes Event once per transition.
 
 `Ready` is monitoring-only. It is not evidence that the Claude runner registered, accepted the
@@ -570,7 +575,7 @@ Testing: `golangci-lint`; `go test` against the real `v1beta1` types with
 `controller-runtime/pkg/client/fake` — the full predicate matrix, redelivery, the stale-spawn
 guard, applied-spawn correlation, and three mandatory cases matching the reading rule above:
 (a) **woken sandbox is not GC'd** — `Suspended` present with status `False`, `last-suspended-at`
-older than `gc.maxIdle`, no pending-spawn -> GC must not fire;
+older than `gc.maxIdleAge`, no pending-spawn -> GC must not fire;
 (b) **terminating pod does not wake** — `spec.operatingMode: Suspended` with `Suspended`
 `False / PodTerminating` and pending-spawn present -> Wake must not fire;
 (c) **old pod does not acknowledge a new order** — an owned live Pod exists and may be
@@ -702,12 +707,12 @@ documented manual run against a real beta environment):
 - Crash: runner exit ≠ 0 leaves `Finished=True/PodFailed`; next spawn request bounces it through
   Suspended and wakes cleanly.
 - Redelivered order id creates no additional workload and repairs incomplete preparation. Concurrent sessions for one account yield two independent
-  Sandboxes/PVCs. GC removes a Sandbox idle past `gc.maxIdle`, and its PVC **and all work-order Secrets**
+  Sandboxes/PVCs. GC removes a Sandbox idle past `gc.maxIdleAge`, and its PVC **and all work-order Secrets**
   go with it — assert zero orphaned Secrets in the namespace after a GC sweep.
 - **Suspend does not touch the Secret**: sleep a session, assert the work-order Secret still exists,
   submit a new order and wake it; assert the new Pod reads its new immutable Secret while the old Secret is unchanged.
 - **GC does not touch a woken session**: sleep a sandbox, backdate `last-suspended-at` past
-  `gc.maxIdle`, wake it, wait until the new Pod is observed and pending-spawn clears, then force a
+  `gc.maxIdleAge`, wake it, wait until the new Pod is observed and pending-spawn clears, then force a
   GC sweep — the Sandbox and PVC survive.
 - **A new spawn request against a still-running session does not produce two pods**: with a live
   pod, fire a spawn request; assert pending-spawn is not cleared by the old Pod, the pod count for
@@ -745,6 +750,9 @@ documented manual run against a real beta environment):
   second session's hook exits 1 naming the counts and creates no Sandbox, PVC or Secret;
   redelivery of the first session's order exits 0; once the first session sleeps, the same
   second order is accepted. `0` restores the uncapped behavior byte for byte.
+- **Idle-session cap**: with `gc.maxIdleSessions: 1` and several sessions asleep, only the most
+  recently suspended survives with its PVC; running, pending and not-yet-confirmed-suspended
+  Sandboxes never count and are never deleted by the cap; `0` disables the count cap.
 
 Use envtest or kind for resourceVersion conflicts, UID delete preconditions, immutable Secrets,
 and generation behavior; fake-client predicate tests alone are insufficient. Owner-reference
@@ -873,3 +881,7 @@ touching sleeping Sandboxes. The session controller uses the `events.k8s.io` rec
    stderr tail is shown as the failure reason; the re-offer backoff schedule is not documented and
    is still to be measured against a real environment. Exit 2 was rejected because only an
    organization Owner can press Retry (cloud-environments doc, "Organization-shared environments").
+9. **Idle-session cap** (2026-09-16): `gc.maxIdle` renamed `gc.maxIdleAge`; `gc.maxIdleSessions`
+   (default 10) deletes the oldest asleep Sandboxes beyond the count, same predicate and
+   preconditions as the age rule. The trigger is the affected Sandbox's own reconcile, so the
+   count cap acts within `resyncSeconds` of a newer session falling asleep; no extra queue source.

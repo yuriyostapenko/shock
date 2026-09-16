@@ -40,7 +40,7 @@ func newFixture(t *testing.T, objs ...client.Object) *fixture {
 	recorder := events.NewFakeRecorder(50)
 	rec := &Reconciler{
 		Client: c, Secrets: c, Recorder: recorder, Release: release,
-		Options: Options{GCEnabled: true, GCMaxIdle: 336 * time.Hour, ZombieEnabled: true, ZombieAlertAfter: 5 * time.Minute},
+		Options: Options{GCEnabled: true, GCMaxIdleAge: 336 * time.Hour, ZombieEnabled: true, ZombieAlertAfter: 5 * time.Minute},
 		Now:     func() time.Time { return testNow },
 	}
 	return &fixture{t: t, client: c, rec: rec, recorder: recorder}
@@ -409,7 +409,7 @@ func TestGCBlockedByPendingSpawnStaleGenerationAndAge(t *testing.T) {
 		t.Fatal("GC deleted a recently suspended sandbox")
 	}
 	if res.RequeueAfter <= 0 || res.RequeueAfter > 336*time.Hour {
-		t.Errorf("expected a requeue until maxIdle, got %v", res.RequeueAfter)
+		t.Errorf("expected a requeue until maxIdleAge, got %v", res.RequeueAfter)
 	}
 	f.rec.Options.GCEnabled = false
 	f = newFixture(t, baseSandbox(sandboxv1beta1.SandboxOperatingModeSuspended, 4,
@@ -493,5 +493,93 @@ func TestDeletingSandboxIsIgnored(t *testing.T) {
 	f.reconcile()
 	if f.sandbox().Spec.OperatingMode != sandboxv1beta1.SandboxOperatingModeRunning {
 		t.Fatal("acted on a deleting sandbox")
+	}
+}
+
+// --- Idle-session cap ---
+
+func asleepSandbox(name string, uid types.UID, suspendedAt time.Time) *sandboxv1beta1.Sandbox {
+	return baseSandbox(sandboxv1beta1.SandboxOperatingModeSuspended, 4,
+		func(sb *sandboxv1beta1.Sandbox) { sb.Name = name; sb.UID = uid },
+		withAnn(naming.AnnotationLastSuspendedAt, suspendedAt.Format(time.RFC3339)),
+		withConds(cond(sandboxv1beta1.SandboxConditionSuspended, metav1.ConditionTrue, sandboxv1beta1.SandboxReasonSuspendedPodTerminated, 4)))
+}
+
+func (f *fixture) reconcileName(name string) {
+	f.t.Helper()
+	if _, err := f.rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: namespace, Name: name}}); err != nil {
+		f.t.Fatalf("reconcile %s: %v", name, err)
+	}
+}
+
+func (f *fixture) exists(name string) bool {
+	f.t.Helper()
+	err := f.client.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: name}, &sandboxv1beta1.Sandbox{})
+	if err != nil && client.IgnoreNotFound(err) != nil {
+		f.t.Fatal(err)
+	}
+	return err == nil
+}
+
+func TestIdleSessionCapDeletesOldestOnly(t *testing.T) {
+	f := newFixture(t,
+		asleepSandbox("old", "u-old", testNow.Add(-10*time.Hour)),
+		asleepSandbox("mid", "u-mid", testNow.Add(-5*time.Hour)),
+		asleepSandbox("new", "u-new", testNow.Add(-1*time.Hour)),
+	)
+	f.rec.Options.GCMaxIdleSessions = 2
+	for _, n := range []string{"new", "mid", "old"} {
+		f.reconcileName(n)
+	}
+	if f.exists("old") {
+		t.Error("the oldest idle sandbox beyond the cap must be deleted")
+	}
+	if !f.exists("mid") || !f.exists("new") {
+		t.Error("idle sandboxes within the cap must survive")
+	}
+	// Ties on the timestamp break by name, so the choice is deterministic.
+	f = newFixture(t,
+		asleepSandbox("b", "u-b", testNow.Add(-time.Hour)),
+		asleepSandbox("a", "u-a", testNow.Add(-time.Hour)),
+	)
+	f.rec.Options.GCMaxIdleSessions = 1
+	f.reconcileName("a")
+	f.reconcileName("b")
+	if f.exists("a") || !f.exists("b") {
+		t.Error("tie-break must delete the lexically smaller name")
+	}
+}
+
+func TestIdleSessionCapCountsOnlyAsleepSandboxes(t *testing.T) {
+	running := baseSandbox(sandboxv1beta1.SandboxOperatingModeRunning, 5,
+		func(sb *sandboxv1beta1.Sandbox) { sb.Name = "running"; sb.UID = "u-run" },
+		withAnn(naming.AnnotationLastSuspendedAt, testNow.Add(-20*time.Hour).Format(time.RFC3339)),
+		withConds(cond(sandboxv1beta1.SandboxConditionSuspended, metav1.ConditionFalse, sandboxv1beta1.SandboxReasonNotSuspended, 5)))
+	pending := asleepSandbox("pending", "u-pend", testNow.Add(-20*time.Hour))
+	pending.Annotations[naming.AnnotationPendingSpawn] = "o1"
+	stale := asleepSandbox("stale", "u-stale", testNow.Add(-20*time.Hour))
+	stale.Generation = 6
+	f := newFixture(t, running, pending, stale, asleepSandbox("idle", "u-idle", testNow.Add(-time.Hour)))
+	f.rec.Options.GCMaxIdleSessions = 1
+	f.reconcileName("idle") // only "idle" reconciles: pending's wake would error on its missing Secret
+	if !f.exists("idle") {
+		t.Fatal("the only asleep sandbox must survive: running, pending and stale ones do not count")
+	}
+	for _, n := range []string{"running", "pending", "stale"} {
+		if !f.exists(n) {
+			t.Errorf("%s must never be deleted by the cap", n)
+		}
+	}
+}
+
+func TestIdleSessionCapZeroIsUnlimited(t *testing.T) {
+	f := newFixture(t,
+		asleepSandbox("old", "u-old", testNow.Add(-10*time.Hour)),
+		asleepSandbox("new", "u-new", testNow.Add(-1*time.Hour)),
+	)
+	f.rec.Options.GCMaxIdleSessions = 0
+	f.reconcileName("old")
+	if !f.exists("old") {
+		t.Fatal("cap 0 must not delete anything")
 	}
 }

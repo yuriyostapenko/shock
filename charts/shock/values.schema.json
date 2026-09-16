@@ -71,10 +71,11 @@
         "gc": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "maxIdle"],
+          "required": ["enabled", "maxIdleAge"],
           "properties": {
             "enabled": {"type": "boolean"},
-            "maxIdle": {"$ref": "#/$defs/duration"}
+            "maxIdleAge": {"$ref": "#/$defs/duration"},
+            "maxIdleSessions": {"type": "integer", "minimum": 0}
           }
         },
         "zombie": {

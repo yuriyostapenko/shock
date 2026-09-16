@@ -14,7 +14,8 @@ sessionController:
   resyncSeconds: 30
   gc:
     enabled: true
-    maxIdle: 336h
+    maxIdleAge: 336h
+    maxIdleSessions: 20
   zombie:
     enabled: true
     alertAfter: 1m

@@ -958,3 +958,51 @@ func TestH_ActiveSessionCap(t *testing.T) {
 	waitObserved(t, b.session, b.id, wakeBudget)
 	waitAsleep(t, b.session, sleepBudget)
 }
+
+// TestI_IdleSessionCap: with maxIdleSessions 1 only the most recently
+// suspended Sandbox survives; the cap is restored afterwards.
+func TestI_IdleSessionCap(t *testing.T) {
+	type idle struct {
+		name string
+		at   string
+	}
+	var newest idle
+	waitFor(t, "every session asleep", wakeBudget, func() (bool, string) {
+		list := &sandboxv1beta1.SandboxList{}
+		if err := c.List(context.Background(), list, client.InNamespace(ns)); err != nil {
+			return false, err.Error()
+		}
+		if len(list.Items) < 2 {
+			t.Skipf("need at least two sandboxes, have %d", len(list.Items))
+		}
+		newest = idle{}
+		for i := range list.Items {
+			sb := &list.Items[i]
+			at := sb.Annotations[naming.AnnotationLastSuspendedAt]
+			if sb.Spec.OperatingMode != sandboxv1beta1.SandboxOperatingModeSuspended || sb.Annotations[naming.AnnotationPendingSpawn] != "" ||
+				!condIs(sb, sandboxv1beta1.SandboxConditionSuspended, metav1.ConditionTrue, sandboxv1beta1.SandboxReasonSuspendedPodTerminated) || at == "" {
+				return false, describe(sb)
+			}
+			if at > newest.at || (at == newest.at && sb.Name > newest.name) {
+				newest = idle{sb.Name, at}
+			}
+		}
+		return true, ""
+	})
+	helmInstall(t, "--set", "sessionController.gc.maxIdleSessions=1")
+	t.Cleanup(func() { helmInstall(t) })
+	waitFor(t, "only the newest idle sandbox left", 2*time.Minute, func() (bool, string) {
+		list := &sandboxv1beta1.SandboxList{}
+		if err := c.List(context.Background(), list, client.InNamespace(ns)); err != nil {
+			return false, err.Error()
+		}
+		var names []string
+		for _, sb := range list.Items {
+			names = append(names, sb.Name)
+		}
+		return len(list.Items) == 1 && list.Items[0].Name == newest.name, strings.Join(names, ",")
+	})
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: naming.PVCName(newest.name)}, &corev1.PersistentVolumeClaim{}); err != nil {
+		t.Fatalf("PVC of the surviving session: %v", err)
+	}
+}

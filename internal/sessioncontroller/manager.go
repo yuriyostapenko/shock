@@ -177,7 +177,8 @@ func Run(ctx context.Context, cfg *rest.Config, opts ManagerOptions) error {
 	})); err != nil {
 		return err
 	}
-	logger.Info("starting manager", "namespace", opts.Namespace, "release", opts.Release, "gc", opts.Lifecycle.GCEnabled, "maxIdle", opts.Lifecycle.GCMaxIdle)
+	logger.Info("starting manager", "namespace", opts.Namespace, "release", opts.Release, "gc", opts.Lifecycle.GCEnabled,
+		"maxIdleAge", opts.Lifecycle.GCMaxIdleAge, "maxIdleSessions", opts.Lifecycle.GCMaxIdleSessions)
 	return mgr.Start(ctx)
 }
 
