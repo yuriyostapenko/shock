@@ -8,12 +8,13 @@ KIND_CLUSTER  ?= shock-e2e
 KIND_NODE_IMAGE ?= kindest/node:v1.35.8
 AGENT_SANDBOX_VERSION ?= v1.0.2
 IMAGE         ?= shock:dev
+CHANNEL       ?= stable
 RUNNER_IMAGE  ?= shock-runner:dev
 CHART         := charts/shock
 E2E_NAMESPACE ?= shock-e2e
 export AGENT_SANDBOX_VERSION E2E_NAMESPACE
 
-.PHONY: all build fmt vet lint test envtest helm-lint helm-template chart-golden trusted-domains e2e-kind e2e-setup e2e e2e-teardown image image-runner clean
+.PHONY: all build fmt vet lint test envtest helm-lint helm-template chart-golden trusted-domains bump-claude e2e-kind e2e-setup e2e e2e-teardown image image-runner clean
 
 all: fmt vet lint test helm-lint chart-golden
 
@@ -46,6 +47,11 @@ helm-template:
 # Regenerates charts/shock/files/anthropic-trusted-domains.txt.
 trusted-domains:
 	./hack/update-trusted-domains.sh
+
+# Pins images/*/Dockerfile and the chart annotation to Anthropic's current
+# Claude Code release (CHANNEL=latest|stable); CHANNEL=check only verifies them.
+bump-claude:
+	./hack/bump-claude.sh $(CHANNEL)
 
 chart-golden:
 	$(GO) test ./test/chart/... -count=1

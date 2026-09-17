@@ -47,8 +47,14 @@ section of `AGENTS.md` describe the steps.
 
 A release is a SemVer tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) on a commit that is on
 `main`. Nothing version-shaped is committed: `Chart.yaml` stays at `0.0.0-dev`
-and the release workflow injects the version. Pushing the tag runs
-`.github/workflows/release.yaml`, which in one run:
+and the release workflow injects the version.
+
+**Minor for changes, patch for Claude Code.** Every hand-cut release bumps the
+minor, `vX.(Y+1).0`. Patch numbers belong to the daily Claude Code release
+below, so a patch bump always means "same SHOCK, newer Claude Code";
+`release.yaml` rejects a hand-pushed tag whose patch component is not zero.
+
+Pushing the tag runs `.github/workflows/release.yaml`, which in one run:
 
 1. builds and pushes `ghcr.io/<owner>/shock:X.Y.Z` (multi-arch, SBOM and
    BuildKit provenance attached), signs it keyless with cosign and, when the
@@ -59,12 +65,51 @@ and the release workflow injects the version. Pushing the tag runs
 3. creates the GitHub Release with generated notes, both digests and the chart
    archive attached; a version with a pre-release suffix is marked pre-release.
 
-To release: `git tag -a vX.Y.Z -m "vX.Y.Z" <commit-on-main> && git push origin vX.Y.Z`.
+To release: `git tag -a vX.Y.0 -m "vX.Y.0" <commit-on-main> && git push origin vX.Y.0`.
 The workflow refuses a tag whose commit is not on `main`. Add a repository
 ruleset for `refs/tags/v*` (creation, update, deletion restricted to admins)
 once the repository is public or on a plan that offers rulesets for private
 repositories. Pull requests build the image without publishing; pushes to
 `main` publish nothing.
+
+### The daily Claude Code release
+
+`.github/workflows/release-claude.yaml` runs at 06:00 UTC every day and:
+
+1. asks Anthropic's release bucket for the current `stable` version — these
+   releases publish themselves, so nobody reviews the bump before it goes out —
+   and exits green when it already matches the pin, which is most days;
+2. **fails** when `main` carries commits the newest `vX.Y.Z` tag does not cover,
+   or when a pre-release tag is ahead of it. Release that work as a minor first;
+   until then the bump is blocked and the run stays red;
+3. builds both images with the new pin and runs `hack/smoke-claude.sh` against
+   each: the binary must report the expected version and still document every
+   flag the chart renders;
+4. commits the pin to `main` (fast-forward only — if `main` moved during the
+   run the next day retries), tags `vX.Y.(Z+1)` and calls `release.yaml`
+   through `workflow_call`, which publishes exactly as a tag push would.
+
+Nothing in CI exercises the real `claude` binary — `test/e2e` runs a busybox
+fake runner — so that smoke check is the entire automated gate on a Claude
+Code bump. Exercise a live session on the kind cluster when a bump matters.
+
+`hack/bump-claude.sh <stable|latest>` performs step 1 locally (`make
+bump-claude`, `CHANNEL=latest` to look ahead of what the workflow will take);
+`hack/bump-claude.sh check` asserts the pins agree and runs in CI.
+
+### Which Claude Code release a version bundles
+
+`ARG CLAUDE_CODE_VERSION` in both `images/*/Dockerfile` is the pin, mirrored
+into the chart's `shock.invalid/claude-code-version` annotation and into an
+image label of the same name. Ask whichever artifact is at hand:
+
+```sh
+helm show chart oci://ghcr.io/<owner>/charts/shock --version X.Y.Z | grep claude-code-version
+docker image inspect ghcr.io/<owner>/shock-runner:X.Y.Z \
+  --format '{{ index .Config.Labels "shock.invalid/claude-code-version" }}'
+```
+
+The GitHub Release notes name it too.
 
 ## Pull requests
 

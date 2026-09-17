@@ -1,0 +1,116 @@
+name: release-claude
+
+# Daily patch release pinning both images to Anthropic's current Claude Code
+# release: a no-op while the channel matches the pin, otherwise it commits the
+# pin to main, tags vX.Y.(Z+1) and calls release.yaml. Patch numbers mean a
+# Claude Code bump and nothing else, so the run fails when main carries commits
+# the last tag does not cover; release those as vX.(Y+1).0 first.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: bump and tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      skip: ${{ steps.bump.outputs.skip }}
+      version: ${{ steps.tag.outputs.version }}
+      sha: ${{ steps.tag.outputs.sha }}
+    env:
+      # Anthropic's soaked channel: these releases publish themselves, so the
+      # bump is never reviewed by a person before it goes out.
+      CHANNEL: stable
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Resolve the channel
+        id: bump
+        run: |
+          out="$(./hack/bump-claude.sh "$CHANNEL")"
+          read -r old new <<<"$out"
+          echo "old=$old" >> "$GITHUB_OUTPUT"
+          echo "new=$new" >> "$GITHUB_OUTPUT"
+          if [ "$old" = "$new" ]; then
+            echo "$CHANNEL is at $old; nothing to release"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Next patch version
+        id: next
+        if: steps.bump.outputs.skip != 'true'
+        run: |
+          # grep finds nothing on a repo without tags: keep the pipeline green
+          # and report the empty result below.
+          last="$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+          if [ -z "$last" ]; then
+            echo "no vX.Y.Z tag yet: cut the first release by hand" >&2; exit 1
+          fi
+          pre="$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-' | sed 's/-.*//' | sort -V | tail -1 || true)"
+          if [ -n "$pre" ] && [ "$(printf '%s\n%s\n' "$last" "$pre" | sort -V | tail -1)" != "$last" ]; then
+            echo "pre-release tags ahead of $last: finish that release first" >&2; exit 1
+          fi
+          if ! git merge-base --is-ancestor "$last" HEAD; then
+            echo "$last is not an ancestor of main" >&2; exit 1
+          fi
+          ahead="$(git rev-list --count "$last"..HEAD)"
+          if [ "$ahead" != 0 ]; then
+            git log --oneline "$last"..HEAD >&2
+            echo "main has $ahead commit(s) since $last; release them as a minor before the Claude bump" >&2
+            exit 1
+          fi
+          IFS=. read -r x y z <<<"${last#v}"
+          echo "version=$x.$y.$((z + 1))" >> "$GITHUB_OUTPUT"
+      - name: Build both images and smoke-test the binary
+        if: steps.bump.outputs.skip != 'true'
+        env:
+          NEW: ${{ steps.bump.outputs.new }}
+        run: |
+          docker build -f images/orchestrator/Dockerfile -t shock:bump .
+          docker build -f images/runner/Dockerfile -t shock-runner:bump .
+          ./hack/smoke-claude.sh shock:bump "$NEW"
+          ./hack/smoke-claude.sh shock-runner:bump "$NEW"
+      - name: Commit and tag
+        id: tag
+        if: steps.bump.outputs.skip != 'true'
+        env:
+          OLD: ${{ steps.bump.outputs.old }}
+          NEW: ${{ steps.bump.outputs.new }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add images/orchestrator/Dockerfile images/runner/Dockerfile charts/shock/Chart.yaml
+          git commit -m "chore: bump Claude Code to $NEW (from $OLD)"
+          # Fast-forward only: main moving during the run invalidates the check
+          # above, so leave it for the next run rather than rebasing onto it.
+          git push origin HEAD:main
+          sha="$(git rev-parse HEAD)"
+          git tag -a "v$VERSION" -m "v$VERSION" "$sha"
+          git push origin "v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: bump
+    if: needs.bump.outputs.skip != 'true'
+    uses: ./.github/workflows/release.yaml
+    with:
+      version: ${{ needs.bump.outputs.version }}
+      sha: ${{ needs.bump.outputs.sha }}
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write

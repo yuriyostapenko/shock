@@ -135,11 +135,19 @@ make image IMAGE=ghcr.io/you/shock:dev
 bin/shock version   # git tag or pseudo-version, commit, commit time, Go version
 ```
 
-Releases: push a `vX.Y.Z` tag on a `main` commit; `.github/workflows/release.yaml`
+Releases: push a `vX.Y.0` tag on a `main` commit; `.github/workflows/release.yaml`
 publishes `ghcr.io/yuriyostapenko/shock:X.Y.Z` and
 `ghcr.io/yuriyostapenko/shock-runner:X.Y.Z`, the chart at
 `oci://ghcr.io/yuriyostapenko/charts/shock:X.Y.Z` with both images pinned by
-digest, and the GitHub Release.
+digest, and the GitHub Release. Patch versions are cut by
+`.github/workflows/release-claude.yaml`, which checks Anthropic's release
+bucket daily and releases `vX.Y.(Z+1)` when a newer Claude Code is out and
+`main` holds nothing else unreleased; every other release bumps the minor. See
+[CONTRIBUTING.md](CONTRIBUTING.md#releasing).
+
+Which Claude Code a version bundles is in the chart's
+`shock.invalid/claude-code-version` annotation, in an image label of the same
+name and in the release notes; `make bump-claude` moves the pin locally.
 
 ## Validation
 

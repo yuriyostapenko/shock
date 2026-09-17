@@ -210,6 +210,11 @@ agent-sandbox bump; CI e2e runs against the oldest and newest allowed minors. Th
 uses GA core APIs, so document in the README that older clusters may work but are untested and
 unsupported.
 
+`Chart.yaml` also carries `annotations.shock.invalid/claude-code-version`, the Claude Code release
+both images bundle (`ARG CLAUDE_CODE_VERSION`, mirrored into an image label of the same name), so
+`helm show chart` answers the question without pulling an image. `hack/bump-claude.sh` moves all
+three together and its `check` mode, run in CI, fails when they disagree.
+
 ### Templates
 
 | Template | Requirements |

@@ -21,16 +21,20 @@ FROM debian:trixie-slim AS fetch
 ARG CLAUDE_CODE_VERSION
 ARG TARGETARCH
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl \
+ && apt-get install -y --no-install-recommends ca-certificates curl jq \
  && rm -rf /var/lib/apt/lists/*
 RUN case "${TARGETARCH}" in amd64) arch=linux-x64 ;; arm64) arch=linux-arm64 ;; *) echo "unsupported TARGETARCH ${TARGETARCH}" >&2; exit 1 ;; esac \
  && mkdir -p /out/hooks \
- && curl --retry 5 --retry-delay 2 -fsSL \
-      "https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION:?set with --build-arg CLAUDE_CODE_VERSION}/${arch}/claude" \
-      -o /out/claude && chmod 0755 /out/claude \
+ && base="https://downloads.claude.ai/claude-code-releases/${CLAUDE_CODE_VERSION:?set with --build-arg CLAUDE_CODE_VERSION}" \
+ && curl --retry 5 --retry-delay 2 -fsSL "${base}/manifest.json" -o /tmp/manifest.json \
+ && curl --retry 5 --retry-delay 2 -fsSL "${base}/${arch}/claude" -o /out/claude \
+ && echo "$(jq -r ".platforms[\"${arch}\"].checksum" /tmp/manifest.json)  /out/claude" | sha256sum --check \
+ && chmod 0755 /out/claude \
  && ln -s /usr/local/bin/shock /out/hooks/spawn-runner
 
 FROM gcr.io/distroless/base-debian13:nonroot AS runtime
+ARG CLAUDE_CODE_VERSION
+LABEL shock.invalid/claude-code-version="${CLAUDE_CODE_VERSION}"
 COPY --from=fetch --chmod=0755 /out/claude /usr/local/bin/claude
 COPY --from=build --chmod=0755 /out/shock /usr/local/bin/shock
 COPY --from=fetch /out/hooks /hooks

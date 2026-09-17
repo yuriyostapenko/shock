@@ -3,9 +3,21 @@ name: release
 # One tag, three artifacts: the image ghcr.io/<owner>/shock:X.Y.Z, the chart
 # oci://ghcr.io/<owner>/charts/shock:X.Y.Z with that image's digest pinned in
 # its default values, and a GitHub Release carrying the chart archive.
+# Tag pushes release by hand; release-claude.yaml calls this workflow for the
+# automated Claude Code patch release, whose tag it creates first.
 on:
   push:
     tags: ["v*"]
+  workflow_call:
+    inputs:
+      version:
+        description: X.Y.Z of the tag the caller has already created
+        type: string
+        required: true
+      sha:
+        description: Commit the tag points at
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -20,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      sha: ${{ steps.v.outputs.sha }}
       prerelease: ${{ steps.v.outputs.prerelease }}
       owner: ${{ steps.v.outputs.owner }}
     steps:
@@ -27,21 +40,33 @@ jobs:
         with:
           fetch-depth: 0
       - id: v
+        env:
+          IN_VERSION: ${{ inputs.version }}
+          IN_SHA: ${{ inputs.sha }}
         run: |
-          tag="${GITHUB_REF_NAME}"
+          if [[ -n "$IN_VERSION" ]]; then
+            version="$IN_VERSION"; tag="v$version"; sha="$IN_SHA"; automated=true
+          else
+            tag="$GITHUB_REF_NAME"; version="${tag#v}"; sha="$GITHUB_SHA"; automated=false
+          fi
           if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "tag $tag is not vX.Y.Z or vX.Y.Z-prerelease" >&2; exit 1
           fi
           git fetch --no-tags origin main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
             echo "tag $tag does not point at a commit on main" >&2; exit 1
           fi
-          version="${tag#v}"
+          # Patch numbers are reserved for the automated Claude Code bump
+          # (CONTRIBUTING.md#releasing), so a hand-cut release bumps the minor.
+          if [[ "$automated" == false && "${BASH_REMATCH[3]}" != 0 ]]; then
+            echo "tag $tag: patch releases are cut by release-claude.yaml; release v${BASH_REMATCH[1]}.$(( BASH_REMATCH[2] + 1 )).0 instead" >&2; exit 1
+          fi
           # Without a /vN module suffix Go stamps only major 0 or 1 tags as the version.
           if (( BASH_REMATCH[1] > 1 )); then
             echo "tag $tag: major versions above 1 need a /v${BASH_REMATCH[1]} module path suffix (go.mod) first" >&2; exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
           if [[ "$version" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
           echo "owner=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
@@ -65,6 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
+          ref: ${{ needs.verify.outputs.sha }}
           fetch-depth: 0
           fetch-tags: true
       - uses: docker/setup-qemu-action@v4.3.0
@@ -126,8 +152,11 @@ jobs:
       ref: oci://ghcr.io/${{ needs.verify.outputs.owner }}/charts/shock
       image_digest: ${{ steps.pin.outputs.image_digest }}
       runner_digest: ${{ steps.pin.outputs.runner_digest }}
+      claude: ${{ steps.pin.outputs.claude }}
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
       - uses: azure/setup-helm@v5.0.1
         with:
           version: ${{ env.HELM_VERSION }}
@@ -148,6 +177,7 @@ jobs:
           yq '{"orchestrator": .orchestrator.image, "runner": .runner.image}' charts/shock/values.yaml
           echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
           echo "runner_digest=$RUNNER_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "claude=$(yq -r '.annotations["shock.invalid/claude-code-version"]' charts/shock/Chart.yaml)" >> "$GITHUB_OUTPUT"
       - name: lint and package
         env:
           VERSION: ${{ needs.verify.outputs.version }}
@@ -189,6 +219,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
       - uses: actions/download-artifact@v8.0.1
         with:
           name: chart
@@ -203,8 +235,11 @@ jobs:
           RUNNER_DIGEST: ${{ needs.chart.outputs.runner_digest }}
           CHART_REF: ${{ needs.chart.outputs.ref }}
           CHART_DIGEST: ${{ needs.chart.outputs.digest }}
+          CLAUDE_VERSION: ${{ needs.chart.outputs.claude }}
         run: |
           cat > notes.md <<NOTES
+          Bundles Claude Code \`${CLAUDE_VERSION}\` in both images.
+
           ## Artifacts
 
           | Artifact | Reference | Digest |
