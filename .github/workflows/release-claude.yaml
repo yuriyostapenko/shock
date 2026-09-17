@@ -81,24 +81,37 @@ jobs:
           docker build -f images/runner/Dockerfile -t shock-runner:bump .
           ./hack/smoke-claude.sh shock:bump "$NEW"
           ./hack/smoke-claude.sh shock-runner:bump "$NEW"
+      # createCommitOnBranch rather than git commit: GitHub signs the commit it
+      # creates, and expectedHeadOid rejects it if main moved during the run
+      # (which would invalidate the check above), leaving it for the next run.
       - name: Commit and tag
         id: tag
         if: steps.bump.outputs.skip != 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           OLD: ${{ steps.bump.outputs.old }}
           NEW: ${{ steps.bump.outputs.new }}
           VERSION: ${{ steps.next.outputs.version }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add images/orchestrator/Dockerfile images/runner/Dockerfile charts/shock/Chart.yaml
-          git commit -m "chore: bump Claude Code to $NEW (from $OLD)"
-          # Fast-forward only: main moving during the run invalidates the check
-          # above, so leave it for the next run rather than rebasing onto it.
-          git push origin HEAD:main
-          sha="$(git rev-parse HEAD)"
-          git tag -a "v$VERSION" -m "v$VERSION" "$sha"
-          git push origin "v$VERSION"
+          additions="$(for f in images/orchestrator/Dockerfile images/runner/Dockerfile charts/shock/Chart.yaml; do
+            jq -n --arg path "$f" --arg contents "$(base64 -w0 "$f")" '{path: $path, contents: $contents}'
+          done | jq -s .)"
+          jq -n \
+            --arg query 'mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }' \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg headline "chore: bump Claude Code to $NEW (from $OLD)" \
+            --arg oid "$(git rev-parse HEAD)" \
+            --argjson additions "$additions" \
+            '{query: $query, variables: {input: {
+               branch: {repositoryNameWithOwner: $repo, branchName: "main"},
+               message: {headline: $headline},
+               expectedHeadOid: $oid,
+               fileChanges: {additions: $additions}}}}' > commit.json
+          sha="$(gh api graphql --input commit.json --jq .data.createCommitOnBranch.commit.oid)"
+          [ -n "$sha" ]
+          # Lightweight, so the ref inherits the commit's signature.
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/v${VERSION}" -f "sha=${sha}" --jq .ref
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 

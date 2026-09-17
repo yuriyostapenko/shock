@@ -91,9 +91,11 @@ repositories. Pull requests build the image without publishing; pushes to
 3. builds both images with the new pin and runs `hack/smoke-claude.sh` against
    each: the binary must report the expected version and still document every
    flag the chart renders;
-4. commits the pin to `main` (fast-forward only — if `main` moved during the
-   run the next day retries), tags `vX.Y.(Z+1)` and calls `release.yaml`
-   through `workflow_call`, which publishes exactly as a tag push would.
+4. commits the pin to `main` with `createCommitOnBranch`, so GitHub signs the
+   commit and `expectedHeadOid` refuses it if `main` moved during the run (the
+   next day retries); tags `vX.Y.(Z+1)` as a lightweight ref, which inherits
+   that signature, and calls `release.yaml` through `workflow_call`, which
+   publishes exactly as a tag push would.
 
 Nothing in CI exercises the real `claude` binary — `test/e2e` runs a busybox
 fake runner — so that smoke check is the entire automated gate on a Claude
