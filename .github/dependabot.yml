@@ -12,3 +12,20 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+
+  # The kubernetes group is a chore, not a merge-on-green: Chart.yaml's
+  # kubeVersion is derived from the k8s.io minor the agent-sandbox pin carries,
+  # and the e2e matrix names its own agent-sandbox version, neither of which
+  # Dependabot edits and neither of which turns CI red when stale.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      kubernetes:
+        patterns:
+          - k8s.io/*
+          - sigs.k8s.io/agent-sandbox
+          - sigs.k8s.io/controller-runtime
+      go:
+        patterns: ["*"]
