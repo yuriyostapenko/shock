@@ -10,6 +10,8 @@ on:
       - internal/**
       - go.mod
       - go.sum
+      # so a change to the build itself is exercised by it
+      - .github/workflows/image.yaml
 
 permissions:
   contents: read
