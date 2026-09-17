@@ -1,16 +1,11 @@
 name: image
 
-# Pull-request build of the orchestrator image. Releases are published by the
-# release workflow from a v* tag.
+# Pull-request build of both images. Releases are published by the release
+# workflow from a v* tag. Unfiltered: `shock` and `shock-runner` are required
+# status checks, and a path-filtered workflow reports nothing when it is
+# skipped, leaving the check pending forever.
 on:
   pull_request:
-    paths:
-      - images/**
-      - cmd/**
-      - internal/**
-      - go.mod
-      - go.sum
-      - .github/workflows/image.yaml
 
 permissions:
   contents: read
