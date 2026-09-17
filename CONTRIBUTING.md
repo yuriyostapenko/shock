@@ -32,6 +32,18 @@ a pin. Dependabot moves the SHA and the comment together and groups every action
 into one pull request a month (`.github/dependabot.yml`). Pin new actions the
 same way.
 
+Dependabot also proposes Go updates monthly, in two groups. The `go` group is
+ordinary; the `kubernetes` group (`k8s.io/*`, `agent-sandbox`,
+`controller-runtime`) is a chore rather than a merge-on-green, because it only
+edits `go.mod`: re-derive `kubeVersion` and move the e2e matrix in the same pull
+request, and run `make e2e-kind` against the new agent-sandbox release.
+
+The Go version lives in `go.mod`. CI reads it with `go-version-file`, and
+`images/orchestrator/Dockerfile` repeats it as `ARG GO_VERSION` because Docker
+cannot read `go.mod`; a check in the `go` job fails when the two disagree.
+Dependabot does not touch either — the `gomod` ecosystem updates requirements,
+not the toolchain.
+
 ## Checks by change type
 
 | Change | Run |
