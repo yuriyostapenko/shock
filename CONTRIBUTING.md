@@ -91,13 +91,27 @@ repositories. Pull requests build the image without publishing; pushes to
 3. builds both images with the new pin and runs `hack/smoke-claude.sh` against
    each: the binary must report the expected version and still document every
    flag the chart renders;
-4. commits the pin to `main` (fast-forward only — if `main` moved during the
-   run the next day retries), tags `vX.Y.(Z+1)` and calls `release.yaml`
-   through `workflow_call`, which publishes exactly as a tag push would.
+4. opens `chore/claude-<version>` with `createCommitOnBranch`, so GitHub signs
+   the commit and `expectedHeadOid` refuses it if `main` moved during the run,
+   and arms auto-merge. The pull request runs the full suite like any other, and
+   lands when it is green. A run that finds its pull request still open waits.
 
-Nothing in CI exercises the real `claude` binary — `test/e2e` runs a busybox
-fake runner — so that smoke check is the entire automated gate on a Claude
-Code bump. Exercise a live session on the kind cluster when a bump matters.
+`.github/workflows/release-tag.yaml` takes over on the push to `main`: when the
+entire delta since the newest `vX.Y.Z` tag is those three pinned files — what a
+patch release means — it tags `vX.Y.(Z+1)` as a lightweight ref, which inherits
+the signature of the commit GitHub created for the squash, and calls
+`release.yaml` through `workflow_call`, which publishes exactly as a tag push
+would. Any other push exits green.
+
+Both workflows act as the `shock-automation` app rather than with
+`GITHUB_TOKEN`, because a branch pushed or a pull request opened with
+`GITHUB_TOKEN` does not trigger CI, and the required checks would never report.
+Its credentials live in the `release` environment, whose deployment branch
+policy limits them to `main`, so a workflow on any other ref is refused them.
+
+`test/e2e` runs a busybox fake runner, so nothing in CI ever executes the real
+`claude` binary; the smoke check in step 3 is the only gate that does. Exercise
+a live session on the kind cluster when a bump matters.
 
 `hack/bump-claude.sh <stable|latest>` performs step 1 locally (`make
 bump-claude`, `CHANNEL=latest` to look ahead of what the workflow will take);
