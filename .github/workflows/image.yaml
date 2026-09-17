@@ -1,9 +1,7 @@
 name: image
 
-# Pull-request build of both images. Releases are published by the release
-# workflow from a v* tag. Unfiltered: `shock` and `shock-runner` are required
-# status checks, and a path-filtered workflow reports nothing when it is
-# skipped, leaving the check pending forever.
+# Pull-request build of both images; the release workflow publishes them from a
+# v* tag. Unfiltered: a skipped workflow never reports its required check.
 on:
   pull_request:
 
