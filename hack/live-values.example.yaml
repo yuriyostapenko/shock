@@ -16,8 +16,9 @@ runner:
     releaseIdleSessionMin: 10
     killSessionAfterMin: 120
     exitIfUnusedMin: 5
-  resources:
+  resources:                    # a kind node is small; production keeps the chart defaults
     requests: {cpu: 500m, memory: 1Gi}
+    limits: {cpu: "2", memory: 2Gi}
   storage:
     size: 2Gi
     accessMode: ReadWriteOnce   # kind's local-path provisioner cannot enforce RWOP

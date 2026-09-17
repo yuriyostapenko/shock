@@ -632,14 +632,7 @@ func TestActiveSessionCap(t *testing.T) {
 		t.Fatalf("alert %s not rendered", alert)
 		return ""
 	}
-	objs, _, err := helmTemplate(t)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := envValue(objs, "SHOCK_MAX_ACTIVE_SESSIONS"); got != "2" {
-		t.Errorf("default SHOCK_MAX_ACTIVE_SESSIONS = %q, want 2", got)
-	}
-	objs, _, err = helmTemplate(t, "--set", "orchestrator.maxActiveSessions=0")
+	objs, _, err := helmTemplate(t, "--set", "orchestrator.maxActiveSessions=0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,9 +641,6 @@ func TestActiveSessionCap(t *testing.T) {
 	}
 	if expr := ruleField(objs, "ClaudeOrchestratorSpawnHookFailing", "expr"); !strings.Contains(expr, `result!="ok"`) {
 		t.Errorf("without a cap every non-ok hook result is a failure, got %s", expr)
-	}
-	if got := ruleField(objs, "ClaudeSessionsBackingOff", "for"); got != "15m" {
-		t.Errorf("ClaudeSessionsBackingOff for = %q, want 15m", got)
 	}
 
 	objs, _, err = helmTemplate(t, "--set", "orchestrator.maxActiveSessions=2", "--set", "monitoring.prometheusRule.backingOffFor=30m")

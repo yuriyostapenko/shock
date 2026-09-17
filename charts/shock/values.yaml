@@ -28,10 +28,11 @@ orchestrator:
   healthPort: 8080
   extraEnv: []       # e.g. HTTPS_PROXY / NO_PROXY for the orchestrator process
   extraArgs: []      # appended to the orchestrator command
+  # Steady state ~150Mi; each concurrent hook adds a short-lived shock process.
   resources:
     requests:
-      cpu: 50m
-      memory: 128Mi
+      cpu: 100m
+      memory: 256Mi
     limits:
       memory: 512Mi
   podAnnotations: {}
@@ -54,10 +55,11 @@ sessionController:
     enabled: true
     alertAfter: 5m          # alarm-only; the session controller never deletes Pods
   healthPort: 8080          # serves /metrics, /healthz and /readyz
+  # Steady state <50Mi; the cache holds only this release's Sandboxes and Pods.
   resources:
     requests:
       cpu: 50m
-      memory: 64Mi
+      memory: 128Mi
     limits:
       memory: 256Mi
   podAnnotations: {}
@@ -96,7 +98,16 @@ runner:
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
-  resources: {}
+  # One session per Pod. Anthropic's starting values: memory request = limit
+  # (4 GB minimum), CPU bursts to the limit during builds. Raise after
+  # measuring a representative build of your repositories.
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 4Gi
   securityContext:
     runAsNonRoot: true
     allowPrivilegeEscalation: false
