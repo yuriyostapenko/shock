@@ -145,6 +145,9 @@ The GitHub Release notes name it too.
 
 ## Pull requests
 
+[REVIEW.md](REVIEW.md) covers reviewing the ones Dependabot opens, and what
+merging any pull request does to the release train.
+
 Keep PRs focused. Explain the problem, resulting behavior and validation, and
 state which checks could not run. If an upstream beta assumption changes,
 identify the pinned release and update the spec and conformance tests together.
