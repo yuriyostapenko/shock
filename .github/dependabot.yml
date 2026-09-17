@@ -1,0 +1,14 @@
+version: 2
+
+# Actions are pinned by commit SHA with the version in a trailing comment;
+# Dependabot moves both together. One grouped pull request a month, so the
+# daily Claude Code release (which refuses to run while main carries untagged
+# commits) is blocked for as short a window as possible.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

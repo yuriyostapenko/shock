@@ -36,7 +36,7 @@ jobs:
       prerelease: ${{ steps.v.outputs.prerelease }}
       owner: ${{ steps.v.outputs.owner }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - id: v
@@ -88,27 +88,27 @@ jobs:
           - name: shock-runner
             dockerfile: images/runner/Dockerfile
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.verify.outputs.sha }}
           fetch-depth: 0
           fetch-tags: true
-      - uses: docker/setup-qemu-action@v4.3.0
-      - uses: docker/setup-buildx-action@v4.3.0
-      - uses: docker/login-action@v4.6.0
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v6.2.0
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.name }}
           tags: |
             type=raw,value=${{ needs.verify.outputs.version }}
             type=sha
       - id: build
-        uses: docker/build-push-action@v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -118,11 +118,11 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: mode=max
           sbom: true
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: sign image (keyless)
         run: cosign sign --yes "ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.name }}@${{ steps.build.outputs.digest }}"
       # Build provenance: public repositories, or private on Enterprise Cloud.
-      - uses: actions/attest-build-provenance@v4.2.2
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         if: github.event.repository.private == false
         with:
           subject-name: ghcr.io/${{ needs.verify.outputs.owner }}/${{ matrix.name }}
@@ -132,7 +132,7 @@ jobs:
         run: |
           mkdir -p digests
           echo "${{ steps.build.outputs.digest }}" > "digests/${{ matrix.name }}"
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: digest-${{ matrix.name }}
           path: digests/${{ matrix.name }}
@@ -154,13 +154,13 @@ jobs:
       runner_digest: ${{ steps.pin.outputs.runner_digest }}
       claude: ${{ steps.pin.outputs.claude }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.verify.outputs.sha }}
-      - uses: azure/setup-helm@v5.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: ${{ env.HELM_VERSION }}
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: digest-*
           path: digests
@@ -196,16 +196,16 @@ jobs:
           digest=$(sed -n 's/^Digest: //p' push.log)
           test -n "$digest"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: sign chart (keyless)
         run: cosign sign --yes "ghcr.io/${{ needs.verify.outputs.owner }}/charts/shock@${{ steps.push.outputs.digest }}"
-      - uses: actions/attest-build-provenance@v4.2.2
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         if: github.event.repository.private == false
         with:
           subject-name: ghcr.io/${{ needs.verify.outputs.owner }}/charts/shock
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: chart
           path: dist/shock-${{ needs.verify.outputs.version }}.tgz
@@ -218,10 +218,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.verify.outputs.sha }}
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: chart
           path: dist
