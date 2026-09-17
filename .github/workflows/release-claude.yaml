@@ -9,12 +9,6 @@ on:
   schedule:
     - cron: "0 6 * * *"
   workflow_dispatch:
-    inputs:
-      channel:
-        description: Release channel to follow
-        type: choice
-        options: [stable, latest]
-        default: stable
 
 permissions:
   contents: read
@@ -34,7 +28,9 @@ jobs:
       version: ${{ steps.tag.outputs.version }}
       sha: ${{ steps.tag.outputs.sha }}
     env:
-      CHANNEL: ${{ inputs.channel || 'stable' }}
+      # Anthropic's soaked channel: these releases publish themselves, so the
+      # bump is never reviewed by a person before it goes out.
+      CHANNEL: stable
     steps:
       - uses: actions/checkout@v7.0.1
         with:

@@ -76,9 +76,9 @@ repositories. Pull requests build the image without publishing; pushes to
 
 `.github/workflows/release-claude.yaml` runs at 06:00 UTC every day and:
 
-1. asks Anthropic's release bucket for the channel's current version — `stable`
-   on the schedule, `latest` selectable on `workflow_dispatch` — and exits green
-   when it already matches the pin, which is most days;
+1. asks Anthropic's release bucket for the current `stable` version — these
+   releases publish themselves, so nobody reviews the bump before it goes out —
+   and exits green when it already matches the pin, which is most days;
 2. **fails** when `main` carries commits the newest `vX.Y.Z` tag does not cover,
    or when a pre-release tag is ahead of it. Release that work as a minor first;
    until then the bump is blocked and the run stays red;
@@ -93,9 +93,9 @@ Nothing in CI exercises the real `claude` binary — `test/e2e` runs a busybox
 fake runner — so that smoke check is the entire automated gate on a Claude
 Code bump. Exercise a live session on the kind cluster when a bump matters.
 
-`hack/bump-claude.sh <latest|stable>` performs step 1 locally (`make
-bump-claude`, `CHANNEL=stable` to switch); `hack/bump-claude.sh check` asserts
-the pins agree and runs in CI.
+`hack/bump-claude.sh <stable|latest>` performs step 1 locally (`make
+bump-claude`, `CHANNEL=latest` to look ahead of what the workflow will take);
+`hack/bump-claude.sh check` asserts the pins agree and runs in CI.
 
 ### Which Claude Code release a version bundles
 
