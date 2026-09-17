@@ -1,0 +1,71 @@
+name: release-tag
+
+# Tags and publishes a Claude Code bump once it lands on main. Runs on any push
+# touching the pinned files and releases only when the whole delta since the
+# newest vX.Y.Z tag is those three files, which is what a patch release means;
+# anything else exits green and waits for a hand-cut minor.
+on:
+  push:
+    branches: [main]
+    paths:
+      - images/orchestrator/Dockerfile
+      - images/runner/Dockerfile
+      - charts/shock/Chart.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: tag the bump
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      skip: ${{ steps.tag.outputs.skip }}
+      version: ${{ steps.tag.outputs.version }}
+      sha: ${{ steps.tag.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Tag when the pin is the only change
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          skip() { echo "$1"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; }
+          last="$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+          [ -n "$last" ] || skip "no vX.Y.Z tag yet: cut the first release by hand"
+          git merge-base --is-ancestor "$last" HEAD || skip "$last is not an ancestor of main"
+          changed="$(git diff --name-only "$last"..HEAD | sort | tr '\n' ' ')"
+          pins="charts/shock/Chart.yaml images/orchestrator/Dockerfile images/runner/Dockerfile "
+          [ "$changed" = "$pins" ] || skip "changes since $last are not only the pin: $changed"
+          IFS=. read -r x y z <<<"${last#v}"
+          version="$x.$y.$((z + 1))"
+          sha="$(git rev-parse HEAD)"
+          # Lightweight, so the ref inherits the signature of the commit GitHub
+          # created when the pull request was squashed.
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/v${version}" -f "sha=${sha}" --jq .ref
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: tag
+    if: needs.tag.outputs.skip != 'true'
+    uses: ./.github/workflows/release.yaml
+    with:
+      version: ${{ needs.tag.outputs.version }}
+      sha: ${{ needs.tag.outputs.sha }}
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write

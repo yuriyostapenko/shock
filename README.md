@@ -139,10 +139,10 @@ Releases: push a `vX.Y.0` tag on a `main` commit; `.github/workflows/release.yam
 publishes `ghcr.io/yuriyostapenko/shock:X.Y.Z` and
 `ghcr.io/yuriyostapenko/shock-runner:X.Y.Z`, the chart at
 `oci://ghcr.io/yuriyostapenko/charts/shock:X.Y.Z` with both images pinned by
-digest, and the GitHub Release. Patch versions are cut by
+digest, and the GitHub Release. Patch versions are opened as pull requests by
 `.github/workflows/release-claude.yaml`, which checks Anthropic's release
-bucket daily and releases `vX.Y.(Z+1)` when a newer Claude Code is out and
-`main` holds nothing else unreleased; every other release bumps the minor. See
+bucket daily, and released by `.github/workflows/release-tag.yaml` when one
+lands on `main` carrying nothing else; every other release bumps the minor. See
 [CONTRIBUTING.md](CONTRIBUTING.md#releasing).
 
 Which Claude Code a version bundles is in the chart's
