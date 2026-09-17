@@ -26,6 +26,12 @@ v0.25.1, k8s.io v0.37.0), in `Chart.yaml` (`kubeVersion`, derived from the
 agent-sandbox pin) and in the e2e matrix in `.github/workflows/ci.yaml`. Bump
 them together and re-derive `kubeVersion`.
 
+GitHub Actions are pinned by commit SHA with the version in a trailing comment
+(`uses: actions/checkout@3d3c42e… # v7.0.1`); a tag is mutable and therefore not
+a pin. Dependabot moves the SHA and the comment together and groups every action
+into one pull request a month (`.github/dependabot.yml`). Pin new actions the
+same way.
+
 ## Checks by change type
 
 | Change | Run |

@@ -23,14 +23,14 @@ jobs:
     name: go (fmt, vet, lint, unit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: gofmt
         run: test -z "$(gofmt -l cmd internal test)"
       - run: go vet ./...
-      - uses: golangci/golangci-lint-action@v9.3.0
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.13.2
       - run: go test ./internal/... ./cmd/... -count=1
@@ -39,10 +39,10 @@ jobs:
     name: chart (ct lint, render, golden)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: azure/setup-helm@v5.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: ${{ env.HELM_VERSION }}
       - name: the chart annotation and both Dockerfiles pin one Claude Code version
@@ -58,7 +58,7 @@ jobs:
           for mode in cilium kubernetes none; do
             helm template shock charts/shock -n shock -f test/values/minimal.yaml --kube-version 1.35.0 --set network.mode=$mode > /dev/null
           done
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: golden (typed decode of the rendered Sandbox template)
@@ -68,8 +68,8 @@ jobs:
     name: envtest (API concurrency)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
       - run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.25
@@ -87,11 +87,11 @@ jobs:
         # Oldest and newest allowed minors for Chart.yaml kubeVersion.
         kube: [v1.35.8, v1.37.0]
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
-      - uses: azure/setup-helm@v5.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: ${{ env.HELM_VERSION }}
       # kind via the Go module proxy, kubectl from dl.k8s.io: no GitHub release downloads.
