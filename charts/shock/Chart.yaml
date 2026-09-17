@@ -22,3 +22,8 @@ keywords:
   - claude-code
   - self-hosted-runner
   - agent-sandbox
+annotations:
+  # Claude Code release bundled in both images, so `helm show chart` answers it
+  # without pulling one; hack/bump-claude.sh keeps it equal to
+  # ARG CLAUDE_CODE_VERSION in images/*/Dockerfile.
+  shock.invalid/claude-code-version: "2.1.270"

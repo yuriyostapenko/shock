@@ -48,7 +48,8 @@ helm-template:
 trusted-domains:
 	./hack/update-trusted-domains.sh
 
-# Pins images/*/Dockerfile to Anthropic's current Claude Code release (CHANNEL=latest|stable).
+# Pins images/*/Dockerfile and the chart annotation to Anthropic's current
+# Claude Code release (CHANNEL=latest|stable); CHANNEL=check only verifies them.
 bump-claude:
 	./hack/bump-claude.sh $(CHANNEL)
 

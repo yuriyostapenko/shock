@@ -32,6 +32,8 @@ RUN case "${TARGETARCH}" in amd64) claude_arch=linux-x64; mise_arch=linux-x64; u
  && tar -xzf uv.tar.gz && install -m 0755 "uv-${uv_arch}-unknown-linux-gnu/uv" /out/uv-bin && install -m 0755 "uv-${uv_arch}-unknown-linux-gnu/uvx" /out/uvx-bin
 
 FROM debian:trixie-slim
+ARG CLAUDE_CODE_VERSION
+LABEL shock.invalid/claude-code-version="${CLAUDE_CODE_VERSION}"
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client jq unzip xz-utils bzip2 libicu76 procps \
  && rm -rf /var/lib/apt/lists/* \

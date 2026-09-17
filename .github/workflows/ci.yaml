@@ -45,6 +45,8 @@ jobs:
       - uses: azure/setup-helm@v5.0.1
         with:
           version: ${{ env.HELM_VERSION }}
+      - name: the chart annotation and both Dockerfiles pin one Claude Code version
+        run: ./hack/bump-claude.sh check
       # The official chart-testing image bundles ct, helm, yamllint and yamale.
       - name: ct lint
         run: |
