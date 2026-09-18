@@ -3,8 +3,8 @@ name: release
 # One tag, three artifacts: the image ghcr.io/<owner>/shock:X.Y.Z, the chart
 # oci://ghcr.io/<owner>/charts/shock:X.Y.Z with that image's digest pinned in
 # its default values, and a GitHub Release carrying the chart archive.
-# Tag pushes release by hand; release-claude.yaml calls this workflow for the
-# automated Claude Code patch release, whose tag it creates first.
+# Tag pushes release by hand; release-tag.yaml calls this workflow for the
+# automated Claude Code release, whose tag it creates first.
 on:
   push:
     tags: ["v*"]
@@ -54,11 +54,6 @@ jobs:
           git fetch --no-tags origin main
           if ! git merge-base --is-ancestor "$sha" origin/main; then
             echo "tag $tag does not point at a commit on main" >&2; exit 1
-          fi
-          # Patch numbers are reserved for the automated Claude Code bump
-          # (CONTRIBUTING.md#releasing), so a hand-cut release bumps the minor.
-          if [[ "$automated" == false && "${BASH_REMATCH[3]}" != 0 ]]; then
-            echo "tag $tag: patch releases are cut by release-claude.yaml; release v${BASH_REMATCH[1]}.$(( BASH_REMATCH[2] + 1 )).0 instead" >&2; exit 1
           fi
           # Without a /vN module suffix Go stamps only major 0 or 1 tags as the version.
           if (( BASH_REMATCH[1] > 1 )); then

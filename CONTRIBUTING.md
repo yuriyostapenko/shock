@@ -67,10 +67,12 @@ A release is a SemVer tag `vX.Y.Z` (or `vX.Y.Z-rc.N`) on a commit that is on
 `main`. Nothing version-shaped is committed: `Chart.yaml` stays at `0.0.0-dev`
 and the release workflow injects the version.
 
-**Minor for changes, patch for Claude Code.** Every hand-cut release bumps the
-minor, `vX.(Y+1).0`. Patch numbers belong to the daily Claude Code release
-below, so a patch bump always means "same SHOCK, newer Claude Code";
-`release.yaml` rejects a hand-pushed tag whose patch component is not zero.
+**The author picks the bump from the change.** A new feature or a change in
+behavior is a minor, `vX.(Y+1).0`. A bug fix, a documentation or packaging
+change, or a dependency bump that alters nothing of ours is a patch,
+`vX.Y.(Z+1)`. The daily Claude Code release cuts patches on the same reading:
+the binary moved, SHOCK did not. When a release carries both kinds, the minor
+wins.
 
 Pushing the tag runs `.github/workflows/release.yaml`, which in one run:
 
@@ -83,7 +85,7 @@ Pushing the tag runs `.github/workflows/release.yaml`, which in one run:
 3. creates the GitHub Release with generated notes, both digests and the chart
    archive attached; a version with a pre-release suffix is marked pre-release.
 
-To release: `git tag -a vX.Y.0 -m "vX.Y.0" <commit-on-main> && git push origin vX.Y.0`.
+To release: `git tag -a vX.Y.Z -m "vX.Y.Z" <commit-on-main> && git push origin vX.Y.Z`.
 The workflow refuses a tag whose commit is not on `main`. Add a repository
 ruleset for `refs/tags/v*` (creation, update, deletion restricted to admins)
 once the repository is public or on a plan that offers rulesets for private
@@ -98,8 +100,9 @@ repositories. Pull requests build the image without publishing; pushes to
    releases publish themselves, so nobody reviews the bump before it goes out —
    and exits green when it already matches the pin, which is most days;
 2. **fails** when `main` carries commits the newest `vX.Y.Z` tag does not cover,
-   or when a pre-release tag is ahead of it. Release that work as a minor first;
-   until then the bump is blocked and the run stays red;
+   or when a pre-release tag is ahead of it — the bump has to be the only thing
+   in its release. Release that work first; until then the bump is blocked and
+   the run stays red;
 3. builds both images with the new pin and runs `hack/smoke-claude.sh` against
    each: the binary must report the expected version and still document every
    flag the chart renders;
@@ -109,8 +112,9 @@ repositories. Pull requests build the image without publishing; pushes to
    lands when it is green. A run that finds its pull request still open waits.
 
 `.github/workflows/release-tag.yaml` takes over on the push to `main`: when the
-entire delta since the newest `vX.Y.Z` tag is those three pinned files — what a
-patch release means — it tags `vX.Y.(Z+1)` as a lightweight ref, which inherits
+entire delta since the newest `vX.Y.Z` tag is those three pinned files, so the
+release carries the bump and nothing else, it tags `vX.Y.(Z+1)` as a lightweight
+ref, which inherits
 the signature of the commit GitHub created for the squash, and calls
 `release.yaml` through `workflow_call`, which publishes exactly as a tag push
 would. Any other push exits green.

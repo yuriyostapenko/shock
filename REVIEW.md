@@ -39,13 +39,13 @@ disagree), the Claude Code pin, or the image base tags.
 ## Merging blocks the next Claude release
 
 Every merged pull request puts a commit on `main` that the newest `vX.Y.Z` tag
-does not cover, and `release-claude.yaml` refuses to run in that state — a patch
-version means a Claude Code bump and nothing else. So the morning after you
-merge anything, including a Dependabot pull request, the daily run fails with
-`main has N commit(s) since vX.Y.Z` until the work is released as
-`vX.(Y+1).0`.
+does not cover, and `release-claude.yaml` refuses to run in that state — its
+release has to carry the bump and nothing else. So the morning after you merge
+anything, including a Dependabot pull request, the daily run fails with
+`main has N commit(s) since vX.Y.Z` until that work is released.
 
 That is the intended behavior, not a fault: it keeps an unrelated change out of
-a patch release. Cut the minor when you merge, rather than discovering it from a
-red run. Both ecosystems are monthly so this happens in at most two windows a
+the Claude release. Cut the release when you merge, rather than discovering it
+from a red run — a patch for a dependency bump, a minor if the change was a
+feature. Both ecosystems are monthly so this happens in at most two windows a
 month. See [CONTRIBUTING.md](CONTRIBUTING.md#releasing).
