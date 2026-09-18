@@ -100,10 +100,11 @@ session unless asked.
   mismatch cannot silently skip the rest or truncate a file; re-read the result.
 - Comments state what is present and why the reader needs it, in a line or two.
   Rationale and history belong in the spec, README or commit message.
-- Versioning: a hand-cut release is always a minor, `vX.(Y+1).0`. Patch numbers
-  belong to the daily automated Claude Code bump, which refuses to release while
-  `main` carries commits the newest tag does not cover, so unreleased work on
-  `main` blocks it. Never push a patch tag by hand; `release.yaml` rejects it.
+- Versioning: the author picks the bump from the change — a feature or behavior
+  change is a minor, a fix, docs or a dependency bump a patch; both kinds in one
+  release make it a minor. The automated Claude Code bump cuts a patch and
+  refuses to release while `main` carries commits the newest tag does not cover,
+  so unreleased work blocks it.
 - When reusing the kind cluster, `make e2e-setup` and the e2e install step already
   clear leftover Sandboxes and restart the controller; still confirm the running
   controller's `imageID` matches the image just loaded when a run fails oddly.

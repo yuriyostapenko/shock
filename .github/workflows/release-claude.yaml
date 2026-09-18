@@ -3,9 +3,9 @@ name: release-claude
 # Daily pull request pinning both images to Anthropic's current Claude Code
 # release: a no-op while the channel matches the pin, otherwise it opens a
 # branch and lets auto-merge land it once CI is green. release-tag.yaml then
-# tags the merge and publishes. Patch numbers mean a Claude Code bump and
-# nothing else, so the run fails when main carries commits the last tag does
-# not cover; release those as vX.(Y+1).0 first.
+# tags the merge and publishes. The bump must be the only thing in its release,
+# so the run fails when main carries commits the last tag does not cover;
+# release those first.
 on:
   schedule:
     - cron: "0 6 * * *"
@@ -84,7 +84,7 @@ jobs:
           ahead="$(git rev-list --count "$last"..HEAD)"
           if [ "$ahead" != 0 ]; then
             git log --oneline "$last"..HEAD >&2
-            echo "main has $ahead commit(s) since $last; release them as a minor before the Claude bump" >&2
+            echo "main has $ahead commit(s) since $last; release them before the Claude bump" >&2
             exit 1
           fi
           IFS=. read -r x y z <<<"${last#v}"
