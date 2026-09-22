@@ -1,4 +1,6 @@
-{{- if .Values.runner.instructions }}
+{{- $si := .Values.secretInjection }}
+{{- $injected := include "shock.injectedCredentials" . | fromJsonArray }}
+{{- if or .Values.runner.instructions (and $si.enabled $injected) }}
 {{- $labels := dict "root" . "component" "runner-instructions" }}
 apiVersion: v1
 kind: ConfigMap
@@ -10,5 +12,29 @@ metadata:
 data:
   # Mounted at /etc/claude-code/CLAUDE.md in every runner Pod.
   CLAUDE.md: |
-    {{- .Values.runner.instructions | nindent 4 }}
+    {{- with .Values.runner.instructions }}
+    {{- . | nindent 4 }}
+    {{- end }}
+    {{- if and $si.enabled $injected }}
+    {{- /* Hosts and the placeholder only: a Secret name here would be a leak
+           (spec section 9). */}}
+
+    ## Credentials for these hosts are injected outside this container
+
+    Requests to the hosts below have their `{{ (index $injected 0).header }}` header set for you
+    after the request leaves this container. Use the literal `{{ $si.placeholder }}`
+    wherever a token, password or auth string is required for them, and never
+    ask for or look for a real token:
+    {{- range $injected }}
+
+    - `{{ .host }}`{{ if .paths }}, on paths matching {{ range $i, $p := .paths }}{{ if $i }}, {{ end }}`{{ $p }}`{{ end }}{{ end }}{{ if .methods }}, methods {{ range $i, $m := .methods }}{{ if $i }}, {{ end }}`{{ $m }}`{{ end }}{{ end }}
+    {{- end }}
+
+    The credential is not present in this container in any form, so there is
+    nothing to read, print or copy. It works only against those hosts.
+    {{- if $si.clientConfigs }}
+    Ready-made client configs carrying the placeholder are at
+    `/etc/shock/registries`: {{ range $f, $_ := $si.clientConfigs }}`{{ $f }}` {{ end }}.
+    {{- end }}
+    {{- end }}
 {{- end }}

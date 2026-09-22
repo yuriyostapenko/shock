@@ -163,6 +163,69 @@ runner:
   # the hook forces the contract fields afterwards. See README.
   podTemplate: {}
 
+# Credentials the runner uses but never holds (spec section 9). Cilium's
+# node-local Envoy terminates TLS to each listed host and sets the bound header
+# from a Secret; the session only ever sees `placeholder`. Requires
+# network.mode: cilium and Cilium >= 1.17 with policy-secret sync (SDS).
+secretInjection:
+  enabled: false
+  # What the client configs and the agent use where a token would go. Not an
+  # enforcement point: the header is replaced whatever the session sent.
+  placeholder: proxy-injected
+
+  # managed: cert-manager issues the interception CA and the certificate Cilium
+  #   presents, with a SAN per injected host. Nothing to prepare; cert-manager
+  #   becomes a prerequisite.
+  # existing: you supply tls.certificateSecret and ca below.
+  pki: managed
+
+  # pki: managed only.
+  certManager:
+    caDuration: 87600h        # the interception CA
+    certDuration: 2160h       # the certificate Cilium presents
+    certRenewBefore: 360h
+    issuerAnnotations: {}     # e.g. to pin an approval policy
+
+  # Public roots Cilium verifies the REAL host against (originatingTLS). Unset,
+  # the chart renders a Secret from files/upstream-ca-bundle.pem: Mozilla's CA
+  # list as curl.se publishes it, pinned by the digest recorded in that file's
+  # header and re-verified by `make ca-bundle-check`. Override with your own
+  # Secret (key ca.crt) for an internal PKI or your own vetted roots.
+  upstreamCA:
+    existingSecret:
+      namespace: ""           # defaults to the release namespace
+      name: ""
+
+  # pki: existing only. kubernetes.io/tls Secret with a SAN for every injected
+  # host, which Cilium presents to the runner.
+  tls:
+    certificateSecret:
+      namespace: ""
+      name: ""
+
+  # pki: existing only. Public certificate of the CA that signed the above, so
+  # the runner trusts it. Exactly one. Never the private key.
+  ca:
+    existingConfigMap: ""     # in the release namespace, key ca.crt
+    bundle: ""                # inline PEM, rendered into a chart ConfigMap
+
+  # One entry per host. Two entries may share a Secret.
+  credentials: []
+    # - name: ghcr                 # RFC 1123, unique; used in rendered names
+    #   host: ghcr.io              # exact lowercase FQDN on 443; no wildcard, no port
+    #   secret:                    # one key, whose value is the whole header value
+    #     namespace: shock-credentials
+    #     name: ghcr-pat
+    #   header: Authorization      # default
+    #   paths: ["/token(\\?.*)?"]  # POSIX regexes; empty = every request
+    #   methods: []                # POSIX regexes; empty = every method
+
+  # Placeholder client configs, mounted read-only at /etc/shock/registries.
+  # They carry no secret. Point tools at them with runner.extraEnv.
+  clientConfigs: {}
+    # npmrc: |
+    #   //npm.pkg.github.com/:_authToken=proxy-injected
+
 network:
   # cilium: CiliumNetworkPolicy with toFQDNs. kubernetes: plain NetworkPolicy,
   # no FQDN filtering. none: nothing.

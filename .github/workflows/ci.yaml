@@ -16,6 +16,7 @@ env:
   HELM_VERSION: v4.3.0
   CT_VERSION: v3.14.0
   KIND_VERSION: v0.33.0
+  CILIUM_VERSION: 1.20.2
 
 jobs:
   go:
@@ -36,7 +37,7 @@ jobs:
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.13.2
-      - run: go test ./internal/... ./cmd/... -count=1
+      - run: go test ./internal/... ./cmd/... ./test/runner/... -count=1
 
   chart:
     name: chart (ct lint, render, golden)
@@ -50,6 +51,8 @@ jobs:
           version: ${{ env.HELM_VERSION }}
       - name: the chart annotation and both Dockerfiles pin one Claude Code version
         run: ./hack/bump-claude.sh check
+      - name: the shipped CA roots match the digest recorded in their header
+        run: make ca-bundle-check
       # The official chart-testing image bundles ct, helm, yamllint and yamale.
       - name: ct lint
         run: |
@@ -68,13 +71,17 @@ jobs:
         run: go test ./test/chart/... -count=1
 
   envtest:
-    name: envtest (API concurrency)
+    name: envtest (API concurrency, Cilium policy conformance)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # The Cilium policy conformance test renders the chart before applying it.
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
       - run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.25
       - run: make envtest ENVTEST_K8S=1.35.x
 
@@ -111,3 +118,36 @@ jobs:
       - name: controller logs on failure
         if: failure()
         run: kubectl -n shock-e2e logs -l app.kubernetes.io/name=session-controller --tail=500 || true
+
+  e2e-cilium:
+    name: e2e cilium (secret injection, cilium ${{ matrix.cilium }})
+    runs-on: ubuntu-latest
+    needs: [go, chart]
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest and newest Cilium minors the chart's injection support claims.
+        cilium: ["1.19.8", "1.20.2"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: install kind and kubectl
+        run: |
+          go install sigs.k8s.io/kind@${{ env.KIND_VERSION }}
+          cd "$RUNNER_TEMP"
+          curl --retry 5 --retry-delay 2 -fsSL "https://dl.k8s.io/release/v1.35.8/bin/linux/amd64/kubectl" -o kubectl
+          curl --retry 5 --retry-delay 2 -fsSL "https://dl.k8s.io/release/v1.35.8/bin/linux/amd64/kubectl.sha256" -o kubectl.sha256
+          echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+          sudo install -m 0755 kubectl /usr/local/bin/kubectl
+      - run: make e2e-cilium-setup CILIUM_VERSION=${{ matrix.cilium }}
+      - run: make e2e-cilium
+      - name: cilium and envoy logs on failure
+        if: failure()
+        run: |
+          kubectl -n kube-system logs -l k8s-app=cilium --tail=300 --all-containers || true
+          kubectl -n shock-injection-lab get cnp -o yaml || true

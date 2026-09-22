@@ -18,6 +18,14 @@
     },
     "duration": {"type": "string", "pattern": "^[0-9]+(h|m|s)$"},
     "stringMap": {"type": "object", "additionalProperties": {"type": "string"}},
+    "secretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {"type": "string"},
+        "name": {"type": "string"}
+      }
+    },
     "objectList": {"type": "array", "items": {"type": "object"}},
     "stringList": {"type": "array", "items": {"type": "string"}}
   },
@@ -148,6 +156,60 @@
         },
         "instructions": {"type": "string"},
         "podTemplate": {"type": "object"}
+      }
+    },
+    "secretInjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "placeholder": {"type": "string", "minLength": 1},
+        "pki": {"type": "string", "enum": ["managed", "existing"]},
+        "certManager": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "caDuration": {"type": "string", "pattern": "^[0-9]+(h|m|s)$"},
+            "certDuration": {"type": "string", "pattern": "^[0-9]+(h|m|s)$"},
+            "certRenewBefore": {"type": "string", "pattern": "^[0-9]+(h|m|s)$"},
+            "issuerAnnotations": {"$ref": "#/$defs/stringMap"}
+          }
+        },
+        "upstreamCA": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"existingSecret": {"$ref": "#/$defs/secretRef"}}
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"certificateSecret": {"$ref": "#/$defs/secretRef"}}
+        },
+        "ca": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingConfigMap": {"type": "string"},
+            "bundle": {"type": "string"}
+          }
+        },
+        "credentials": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "host", "secret"],
+            "properties": {
+              "name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 40},
+              "host": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)+$"},
+              "secret": {"$ref": "#/$defs/secretRef"},
+              "header": {"type": "string", "pattern": "^[A-Za-z0-9-]+$"},
+              "paths": {"type": "array", "items": {"type": "string"}},
+              "methods": {"type": "array", "items": {"type": "string"}}
+            }
+          }
+        },
+        "clientConfigs": {"$ref": "#/$defs/stringMap"}
       }
     },
     "network": {
