@@ -5,11 +5,17 @@ name: release-claude
 # branch and lets auto-merge land it once CI is green. release-tag.yaml then
 # tags the merge and publishes. The bump must be the only thing in its release,
 # so the run fails when main carries commits the last tag does not cover;
-# release those first.
+# release those first, or dispatch with ignore_unreleased to let the bump ride
+# along with them in a release you cut yourself.
 on:
   schedule:
     - cron: "0 6 * * *"
   workflow_dispatch:
+    inputs:
+      ignore_unreleased:
+        description: Open the bump even though main has unreleased commits
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -61,6 +67,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           NEW: ${{ steps.bump.outputs.new }}
+          IGNORE_UNRELEASED: ${{ inputs.ignore_unreleased }}
         run: |
           branch="chore/claude-$NEW"
           if [ "$(gh pr list --head "$branch" --state open --json number --jq length)" != 0 ]; then
@@ -84,8 +91,14 @@ jobs:
           ahead="$(git rev-list --count "$last"..HEAD)"
           if [ "$ahead" != 0 ]; then
             git log --oneline "$last"..HEAD >&2
-            echo "main has $ahead commit(s) since $last; release them before the Claude bump" >&2
-            exit 1
+            if [ "$IGNORE_UNRELEASED" != true ]; then
+              echo "main has $ahead commit(s) since $last; release them before the Claude bump" >&2
+              exit 1
+            fi
+            # release-tag.yaml releases only a delta that is the pin alone, so
+            # this bump lands on main and waits for a release cut by hand.
+            echo "main has $ahead commit(s) since $last; opening the bump to ride along with them"
+            echo "rides_along=true" >> "$GITHUB_OUTPUT"
           fi
           IFS=. read -r x y z <<<"${last#v}"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
@@ -109,6 +122,7 @@ jobs:
           NEW: ${{ steps.bump.outputs.new }}
           BRANCH: ${{ steps.next.outputs.branch }}
           VERSION: ${{ steps.next.outputs.version }}
+          RIDES_ALONG: ${{ steps.next.outputs.rides_along }}
         run: |
           head="$(git rev-parse HEAD)"
           gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
@@ -129,10 +143,15 @@ jobs:
                expectedHeadOid: $oid,
                fileChanges: {additions: $additions}}}}' > commit.json
           gh api graphql --input commit.json --jq .data.createCommitOnBranch.commit.oid
+          if [ "$RIDES_ALONG" = true ]; then
+            landing="Auto-merge is armed, but \`main\` already carries unreleased commits, so this does not release on its own: it lands on \`main\` and ships in the next release you cut."
+          else
+            landing="Auto-merge is armed: once the required checks pass this lands on \`main\`, and \`release-tag.yaml\` tags it \`v$VERSION\` and publishes."
+          fi
           cat > body.md <<EOF
           Pins both images to Claude Code **$NEW** (was $OLD), the \`$CHANNEL\` channel of Anthropic's release bucket.
 
-          Both images were built and smoke-tested in the workflow run before this branch was opened. Auto-merge is armed: once the required checks pass this lands on \`main\`, and \`release-tag.yaml\` tags it \`v$VERSION\` and publishes.
+          Both images were built and smoke-tested in the workflow run before this branch was opened. $landing
 
           Changelog: https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md
           EOF

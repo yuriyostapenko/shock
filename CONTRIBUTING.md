@@ -105,7 +105,10 @@ repositories. Pull requests build the image without publishing; pushes to
 2. **fails** when `main` carries commits the newest `vX.Y.Z` tag does not cover,
    or when a pre-release tag is ahead of it — the bump has to be the only thing
    in its release. Release that work first; until then the bump is blocked and
-   the run stays red;
+   the run stays red. To take the bump anyway, dispatch the workflow with
+   **ignore unreleased commits**: the pull request opens and merges as usual,
+   but `release-tag.yaml` sees more than the pin in the delta and stays out of
+   it, so the bump ships in the next release you cut by hand;
 3. builds both images with the new pin and runs `hack/smoke-claude.sh` against
    each: the binary must report the expected version and still document every
    flag the chart renders;
