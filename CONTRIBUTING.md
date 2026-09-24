@@ -86,6 +86,9 @@ Pushing the tag runs `.github/workflows/release.yaml`, which in one run:
    archive attached; a version with a pre-release suffix is marked pre-release.
 
 To release: `git tag -a vX.Y.Z -m "vX.Y.Z" <commit-on-main> && git push origin vX.Y.Z`.
+When a run half-publishes — a step fails after the images or the chart are
+already up — `gh workflow run release.yaml -f version=X.Y.Z` publishes that tag
+again rather than burning a version number on the failure.
 The workflow refuses a tag whose commit is not on `main`. Add a repository
 ruleset for `refs/tags/v*` (creation, update, deletion restricted to admins)
 once the repository is public or on a plan that offers rulesets for private
