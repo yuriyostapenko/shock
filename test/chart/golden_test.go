@@ -4,6 +4,8 @@ package chart
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -658,5 +660,507 @@ func TestActiveSessionCap(t *testing.T) {
 	}
 	if _, _, err := helmTemplate(t, "--set", "orchestrator.maxActiveSessions=-1"); err == nil {
 		t.Error("a negative cap must fail schema validation")
+	}
+}
+
+// --- Secret injection (spec section 9) ---
+
+// injectionValues is the smallest overlay that turns injection on: the default
+// pki: managed, operator-supplied upstream roots, and two credentials, one
+// path-scoped like ghcr.io's token endpoint and one not.
+func injectionValues(t *testing.T) string {
+	t.Helper()
+	return overlay(t, `
+secretInjection:
+  enabled: true
+  credentials:
+    - name: ghcr
+      host: ghcr.io
+      secret: {namespace: shock-credentials, name: ghcr-pat}
+      paths: ["/token(\\?.*)?"]
+    - name: npm-pkg
+      host: npm.pkg.github.com
+      secret: {namespace: shock-credentials, name: npm-pat}
+  clientConfigs:
+    npmrc: |
+      //npm.pkg.github.com/:_authToken=proxy-injected
+`)
+}
+
+// overlay writes a values file Helm can merge over the others.
+func overlay(t *testing.T, body string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "overlay.yaml")
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// runnerEgress returns the runner policy's egress rules split into the plain
+// allow rules and the interception rules, keyed by host.
+func runnerEgress(t *testing.T, objs []unstructured.Unstructured) (plain map[string]bool, intercept map[string]map[string]any) {
+	t.Helper()
+	cnp := find(objs, "CiliumNetworkPolicy", release+"-shock-runner")
+	if cnp == nil {
+		t.Fatal("runner CiliumNetworkPolicy not rendered")
+	}
+	plain, intercept = map[string]bool{}, map[string]map[string]any{}
+	egress, _, _ := unstructured.NestedSlice(cnp.Object, "spec", "egress")
+	for _, e := range egress {
+		rule, _ := e.(map[string]any)
+		fqdns, _, _ := unstructured.NestedSlice(rule, "toFQDNs")
+		if len(fqdns) == 0 {
+			continue
+		}
+		var host string
+		for _, v := range fqdns[0].(map[string]any) {
+			host = v.(string)
+		}
+		ports, _, _ := unstructured.NestedSlice(rule, "toPorts")
+		port, _ := ports[0].(map[string]any)
+		if _, ok := port["terminatingTLS"]; ok {
+			intercept[host] = port
+		} else {
+			plain[host] = true
+		}
+	}
+	return plain, intercept
+}
+
+func TestSecretInjectionRendersInterceptionRules(t *testing.T) {
+	objs, stderr, err := helmTemplate(t, "-f", injectionValues(t))
+	if err != nil {
+		t.Fatalf("%v %s", err, stderr)
+	}
+	plain, intercept := runnerEgress(t, objs)
+
+	// Both hosts are on Anthropic's Trusted list. A plain L4 allow surviving
+	// beside the interception rule would admit the traffic unproxied.
+	for _, host := range []string{"ghcr.io", "npm.pkg.github.com"} {
+		if plain[host] {
+			t.Errorf("%s still has a plain toFQDNs rule alongside its interception rule", host)
+		}
+		if intercept[host] == nil {
+			t.Fatalf("%s has no interception rule", host)
+		}
+	}
+	if !plain["api.anthropic.com"] {
+		t.Error("api.anthropic.com must keep its plain rule")
+	}
+	if _, ok := intercept["api.anthropic.com"]; ok {
+		t.Error("api.anthropic.com must never be intercepted")
+	}
+
+	ghcr := intercept["ghcr.io"]
+	orig, _, _ := unstructured.NestedStringMap(ghcr, "originatingTLS", "secret")
+	if orig["namespace"] != "runners" || orig["name"] != release+"-shock-upstream-ca" {
+		t.Errorf("originatingTLS must default to the chart's pinned roots: %v", orig)
+	}
+	https, _, _ := unstructured.NestedSlice(ghcr, "rules", "http")
+	if len(https) != 2 {
+		t.Fatalf("a path-scoped credential renders the bound rule plus a catch-all, got %d: %v", len(https), https)
+	}
+	bound := https[0].(map[string]any)
+	if bound["path"] != `/token(\?.*)?` {
+		t.Errorf("bound path: %v", bound["path"])
+	}
+	hm, _, _ := unstructured.NestedSlice(bound, "headerMatches")
+	m := hm[0].(map[string]any)
+	if m["name"] != "Authorization" || m["mismatch"] != "REPLACE" {
+		t.Errorf("headerMatch must REPLACE the bound header: %v", m)
+	}
+	sec, _, _ := unstructured.NestedStringMap(m, "secret")
+	if sec["namespace"] != "shock-credentials" || sec["name"] != "ghcr-pat" {
+		t.Errorf("headerMatch secret: %v", sec)
+	}
+	// The catch-all is what lets the OCI client present its derived Bearer JWT
+	// on /v2/... unmodified instead of being dropped.
+	if len(https[1].(map[string]any)) != 0 {
+		t.Errorf("second http rule must be the empty catch-all, got %v", https[1])
+	}
+
+	// An unscoped credential injects on every request, so no catch-all.
+	npm, _, _ := unstructured.NestedSlice(intercept["npm.pkg.github.com"], "rules", "http")
+	if len(npm) != 1 {
+		t.Fatalf("unscoped credential must render exactly one http rule, got %v", npm)
+	}
+	if _, ok := npm[0].(map[string]any)["path"]; ok {
+		t.Error("unscoped credential must not render a path")
+	}
+
+	// The orchestrator is not a session and is never intercepted; it keeps the
+	// full allow list.
+	orch := find(objs, "CiliumNetworkPolicy", release+"-shock-orchestrator")
+	if orch == nil {
+		t.Fatal("orchestrator policy missing")
+	}
+	raw := fmt.Sprint(orch.Object)
+	if strings.Contains(raw, "terminatingTLS") || strings.Contains(raw, "headerMatches") {
+		t.Error("the orchestrator policy must carry no interception rules")
+	}
+	if !strings.Contains(raw, "ghcr.io") {
+		t.Error("the orchestrator keeps the full allow list, including injected hosts")
+	}
+}
+
+// Cilium reads a matched rule with no client TLS context as permission to use a
+// raw socket upstream, so an interception rule without originatingTLS would
+// forward the injected credential in cleartext. Every rule must carry it,
+// whether the roots come from the chart or from an override.
+func TestSecretInjectionAlwaysCarriesUpstreamRoots(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		args          []string
+		wantNamespace string
+		wantName      string
+		wantChartCA   bool
+	}{
+		{name: "chart roots by default", wantNamespace: "runners", wantName: release + "-shock-upstream-ca", wantChartCA: true},
+		{name: "operator override", args: []string{
+			"--set", "secretInjection.upstreamCA.existingSecret.namespace=shock-credentials",
+			"--set", "secretInjection.upstreamCA.existingSecret.name=our-roots"},
+			wantNamespace: "shock-credentials", wantName: "our-roots"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objs, stderr, err := helmTemplate(t, append([]string{"-f", injectionValues(t)}, tc.args...)...)
+			if err != nil {
+				t.Fatalf("%v %s", err, stderr)
+			}
+			_, intercept := runnerEgress(t, objs)
+			if len(intercept) == 0 {
+				t.Fatal("no interception rules rendered")
+			}
+			for host, port := range intercept {
+				sec, found, _ := unstructured.NestedStringMap(port, "originatingTLS", "secret")
+				if !found {
+					t.Fatalf("interception rule for %s has no originatingTLS: Cilium would forward the credential upstream in cleartext", host)
+				}
+				if sec["namespace"] != tc.wantNamespace || sec["name"] != tc.wantName {
+					t.Errorf("%s originatingTLS = %v", host, sec)
+				}
+			}
+			ca := find(objs, "Secret", release+"-shock-upstream-ca")
+			if tc.wantChartCA {
+				if ca == nil {
+					t.Fatal("the chart must render its pinned roots when no override is set")
+				}
+				body, _, _ := unstructured.NestedString(ca.Object, "stringData", "ca.crt")
+				// Mozilla's list, not a handful of certificates from somewhere.
+				if n := strings.Count(body, "BEGIN CERTIFICATE"); n < 100 {
+					t.Errorf("the shipped roots carry %d certificates; run `make ca-bundle`", n)
+				}
+				// The digest in the header is what `make ca-bundle-check` and CI
+				// verify, so it has to survive into the Secret.
+				if !strings.Contains(body, "# sha256:") || !strings.Contains(body, "https://curl.se/ca/cacert.pem") {
+					t.Error("the shipped roots must carry their source and digest header")
+				}
+			} else if ca != nil {
+				t.Error("an override must not also render the chart's roots")
+			}
+		})
+	}
+}
+
+// The file the chart ships must be Mozilla's list and nothing else. This is the
+// check that would have caught the interception CAs an earlier generator, which
+// read the build host's trust store, baked into the chart.
+func TestShippedUpstreamRootsAreOnlyMozillas(t *testing.T) {
+	path := filepath.Join(chartDir(t), "files", "upstream-ca-bundle.pem")
+	body, err := os.ReadFile(path) //nolint:gosec // path built from the chart dir
+	if err != nil {
+		t.Fatalf("the chart must ship upstream roots: %v", err)
+	}
+	text := string(body)
+	marker := "# ---8<--- upstream file follows\n"
+	i := strings.Index(text, marker)
+	if i < 0 {
+		t.Fatal("no upstream marker in the shipped roots; regenerate with `make ca-bundle`")
+	}
+	var recorded string
+	for _, line := range strings.Split(text[:i], "\n") {
+		if rest, ok := strings.CutPrefix(line, "# sha256:"); ok {
+			recorded = strings.TrimSpace(rest)
+		}
+	}
+	if recorded == "" {
+		t.Fatal("the shipped roots record no sha256")
+	}
+	sum := sha256.Sum256([]byte(text[i+len(marker):]))
+	if got := hex.EncodeToString(sum[:]); got != recorded {
+		t.Errorf("the shipped roots do not match their recorded digest:\n recorded %s\n actual   %s\nThe file was edited by hand; re-run `make ca-bundle`.", recorded, got)
+	}
+	// Names that would mean a TLS-inspecting proxy's CA got in.
+	for _, bad := range []string{"interception", "Interception", "Inspection", "inspection", "egress-gateway", "Proxy CA", "proxy-ca"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("the shipped roots mention %q; these are meant to be Mozilla's public list only", bad)
+		}
+	}
+}
+
+// pki: managed issues the chain with cert-manager and keeps every private key
+// out of the Pod.
+func TestSecretInjectionManagedPKI(t *testing.T) {
+	objs, stderr, err := helmTemplate(t, "-f", injectionValues(t))
+	if err != nil {
+		t.Fatalf("%v %s", err, stderr)
+	}
+	selfSigned := find(objs, "Issuer", release+"-shock-egress-selfsigned")
+	caCert := find(objs, "Certificate", release+"-shock-egress-ca")
+	caIssuer := find(objs, "Issuer", release+"-shock-egress-ca")
+	leaf := find(objs, "Certificate", release+"-shock-egress-tls")
+	for name, o := range map[string]*unstructured.Unstructured{
+		"self-signed Issuer": selfSigned, "CA Certificate": caCert,
+		"CA Issuer": caIssuer, "leaf Certificate": leaf,
+	} {
+		if o == nil {
+			t.Fatalf("pki: managed must render the %s", name)
+		}
+		if o.GetNamespace() != "runners" {
+			t.Errorf("%s must be namespaced in the release namespace, got %q", name, o.GetNamespace())
+		}
+	}
+	if isCA, _, _ := unstructured.NestedBool(caCert.Object, "spec", "isCA"); !isCA {
+		t.Error("the CA Certificate must set isCA")
+	}
+	// The leaf's SANs are the injected hosts, so adding a credential reissues it.
+	names, _, _ := unstructured.NestedStringSlice(leaf.Object, "spec", "dnsNames")
+	if fmt.Sprint(names) != "[ghcr.io npm.pkg.github.com]" {
+		t.Errorf("leaf dnsNames must be exactly the injected hosts, got %v", names)
+	}
+
+	// Cilium presents the leaf; the runner trusts it via the same Secret's ca.crt.
+	_, intercept := runnerEgress(t, objs)
+	term, _, _ := unstructured.NestedStringMap(intercept["ghcr.io"], "terminatingTLS", "secret")
+	if term["namespace"] != "runners" || term["name"] != release+"-shock-egress-tls" {
+		t.Errorf("terminatingTLS must name the issued leaf Secret, got %v", term)
+	}
+
+	sb := sandboxTemplate(t, objs)
+	var caVol *corev1.Volume
+	for i, v := range sb.Spec.PodTemplate.Spec.Volumes {
+		if v.Name == "egress-ca" {
+			caVol = &sb.Spec.PodTemplate.Spec.Volumes[i]
+		}
+	}
+	if caVol == nil || caVol.Secret == nil {
+		t.Fatalf("pki: managed must mount the issued Secret's CA, got %+v", caVol)
+	}
+	if caVol.Secret.SecretName != release+"-shock-egress-tls" {
+		t.Errorf("CA volume secret = %q", caVol.Secret.SecretName)
+	}
+	// items is what keeps the leaf private key out of the Pod.
+	if len(caVol.Secret.Items) != 1 || caVol.Secret.Items[0].Key != "ca.crt" {
+		t.Errorf("a Secret-backed CA volume must select ca.crt alone, got %v", caVol.Secret.Items)
+	}
+	// The CA private key lives in its own Secret, which no Pod may reference.
+	if strings.Contains(sandboxTemplateRaw(t, objs), release+"-shock-egress-ca") {
+		t.Error("the CA Certificate's Secret holds the CA private key and must be referenced by no Pod")
+	}
+}
+
+func TestSecretInjectionExistingPKI(t *testing.T) {
+	objs, stderr, err := helmTemplate(t, "-f", injectionValues(t),
+		"--set", "secretInjection.pki=existing",
+		"--set", "secretInjection.tls.certificateSecret.namespace=shock-credentials",
+		"--set", "secretInjection.tls.certificateSecret.name=egress-tls",
+		"--set", "secretInjection.ca.existingConfigMap=my-egress-ca")
+	if err != nil {
+		t.Fatalf("%v %s", err, stderr)
+	}
+	for _, kind := range []string{"Issuer", "Certificate"} {
+		for _, o := range objs {
+			if o.GetKind() == kind {
+				t.Errorf("pki: existing must render no cert-manager %s (%s)", kind, o.GetName())
+			}
+		}
+	}
+	_, intercept := runnerEgress(t, objs)
+	term, _, _ := unstructured.NestedStringMap(intercept["ghcr.io"], "terminatingTLS", "secret")
+	if term["namespace"] != "shock-credentials" || term["name"] != "egress-tls" {
+		t.Errorf("terminatingTLS must name the operator's Secret, got %v", term)
+	}
+	sb := sandboxTemplate(t, objs)
+	for _, v := range sb.Spec.PodTemplate.Spec.Volumes {
+		if v.Name == "egress-ca" {
+			if v.ConfigMap == nil || v.ConfigMap.Name != "my-egress-ca" {
+				t.Errorf("pki: existing must mount the operator's ConfigMap, got %+v", v)
+			}
+			if v.Secret != nil {
+				t.Error("the CA volume must not be a Secret in this mode")
+			}
+		}
+	}
+}
+
+// The credential must not reach the Pod in any form: the hook renders the
+// Sandbox from this template, so a Secret name here would become a mount.
+func TestSecretInjectionKeepsCredentialsOutOfThePod(t *testing.T) {
+	objs, stderr, err := helmTemplate(t, "-f", injectionValues(t))
+	if err != nil {
+		t.Fatalf("%v %s", err, stderr)
+	}
+	raw := sandboxTemplateRaw(t, objs)
+	for _, forbidden := range []string{"ghcr-pat", "npm-pat", "shock-credentials"} {
+		if strings.Contains(raw, forbidden) {
+			t.Errorf("rendered Sandbox template names %q; credential and upstream-root Secrets belong to the policy only", forbidden)
+		}
+	}
+	sb := sandboxTemplate(t, objs)
+	runner := sb.Spec.PodTemplate.Spec.Containers[0]
+
+	var caMount, registriesMount bool
+	for _, m := range runner.VolumeMounts {
+		switch m.MountPath {
+		case "/etc/shock/egress-ca":
+			caMount = m.ReadOnly
+		case "/etc/shock/registries":
+			registriesMount = m.ReadOnly
+		}
+	}
+	if !caMount {
+		t.Error("the egress CA must be mounted read-only at /etc/shock/egress-ca")
+	}
+	if !registriesMount {
+		t.Error("client configs must be mounted read-only at /etc/shock/registries")
+	}
+	var env string
+	for _, e := range runner.Env {
+		if e.Name == "SHOCK_EGRESS_CA_FILE" {
+			env = e.Value
+		}
+	}
+	if env != "/etc/shock/egress-ca/ca.crt" {
+		t.Errorf("SHOCK_EGRESS_CA_FILE = %q, the entrypoint keys the trust wiring on it", env)
+	}
+	// Every injection volume is either a ConfigMap or a Secret restricted to
+	// ca.crt. Anything else would project key material into the session.
+	for _, v := range sb.Spec.PodTemplate.Spec.Volumes {
+		if v.Name != "egress-ca" && v.Name != "registries" {
+			continue
+		}
+		switch {
+		case v.ConfigMap != nil:
+		case v.Secret != nil:
+			if len(v.Secret.Items) != 1 || v.Secret.Items[0].Key != "ca.crt" {
+				t.Errorf("volume %s is a Secret and must select ca.crt alone, got %v", v.Name, v.Secret.Items)
+			}
+		default:
+			t.Errorf("volume %s must be a ConfigMap or a restricted Secret, got %+v", v.Name, v)
+		}
+	}
+
+	// The agent is told the hosts and the placeholder, never a Secret.
+	cm := find(objs, "ConfigMap", release+"-shock-runner-instructions")
+	if cm == nil {
+		t.Fatal("instructions ConfigMap missing")
+	}
+	instr, _, _ := unstructured.NestedString(cm.Object, "data", "CLAUDE.md")
+	for _, want := range []string{"proxy-injected", "ghcr.io", "npm.pkg.github.com", `/token(\?.*)?`} {
+		if !strings.Contains(instr, want) {
+			t.Errorf("instructions must name %q", want)
+		}
+	}
+	for _, forbidden := range []string{"ghcr-pat", "npm-pat", "shock-credentials"} {
+		if strings.Contains(instr, forbidden) {
+			t.Errorf("instructions name %q; hosts and the placeholder only", forbidden)
+		}
+	}
+}
+
+func TestSecretInjectionValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "non-cilium mode", args: []string{"--set", "network.mode=kubernetes"},
+			want: "requires network.mode cilium"},
+		{name: "anthropic api", args: []string{"--set", "secretInjection.credentials[0].host=api.anthropic.com"},
+			want: "api.anthropic.com can never be intercepted"},
+		{name: "duplicate host", args: []string{"--set", "secretInjection.credentials[1].host=ghcr.io"},
+			want: "already injected"},
+		{name: "duplicate name", args: []string{"--set", "secretInjection.credentials[1].name=ghcr"},
+			want: "duplicate name"},
+		{name: "secret name in a client config", args: []string{"--set", `secretInjection.clientConfigs.npmrc=token=ghcr-pat`},
+			want: "client configs carry the placeholder only"},
+		// A stale field from the other mode must not look effective.
+		{name: "managed with a certificate reference", args: []string{"--set", "secretInjection.tls.certificateSecret.name=stale"},
+			want: "cert-manager issues the certificate"},
+		{name: "managed with a ca reference", args: []string{"--set", "secretInjection.ca.existingConfigMap=stale"},
+			want: "cert-manager issues the certificate"},
+		{name: "existing without a certificate", args: []string{"--set", "secretInjection.pki=existing", "--set", "secretInjection.ca.existingConfigMap=x"},
+			want: "certificateSecret.name is required"},
+		{name: "existing without a ca", args: []string{"--set", "secretInjection.pki=existing", "--set", "secretInjection.tls.certificateSecret.name=x"},
+			want: "must trust the interception CA"},
+		{name: "existing with two cas", args: []string{"--set", "secretInjection.pki=existing", "--set", "secretInjection.tls.certificateSecret.name=x",
+			"--set", "secretInjection.ca.existingConfigMap=a", "--set", "secretInjection.ca.bundle=b"}, want: "only one of"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, stderr, err := helmTemplate(t, append([]string{"-f", injectionValues(t)}, tc.args...)...)
+			if err == nil {
+				t.Fatalf("expected a render failure, got none")
+			}
+			if !strings.Contains(stderr, tc.want) {
+				t.Fatalf("stderr must name the problem %q:\n%s", tc.want, stderr)
+			}
+		})
+	}
+}
+
+// A wildcard allow-list entry covering an injected host would admit it on L4
+// without the proxy, so the render refuses rather than silently leaking it.
+func TestSecretInjectionRefusesHostUnderWildcard(t *testing.T) {
+	base := injectionValues(t)
+	_, stderr, err := helmTemplate(t, "-f", base,
+		"--set", "network.extraAllowedFQDNs={*.pkg.github.com}")
+	if err == nil {
+		t.Fatal("a wildcard covering an injected host must fail the render")
+	}
+	if !strings.Contains(stderr, "excludeFQDNs") {
+		t.Fatalf("the failure must name the remedy:\n%s", stderr)
+	}
+	// Excluding it makes the same values render.
+	if _, stderr, err := helmTemplate(t, "-f", base,
+		"--set", "network.extraAllowedFQDNs={*.pkg.github.com}",
+		"--set", "network.excludeFQDNs={*.pkg.github.com}"); err != nil {
+		t.Fatalf("excluding the wildcard must make it render: %v %s", err, stderr)
+	}
+}
+
+// Injection off is the default and must change nothing.
+func TestSecretInjectionOffByDefault(t *testing.T) {
+	objs, _, err := helmTemplate(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range objs {
+		switch o.GetKind() {
+		case "Issuer", "Certificate":
+			t.Errorf("%s %s must not render with injection off", o.GetKind(), o.GetName())
+		}
+	}
+	for _, n := range []string{release + "-shock-registries", release + "-shock-egress-ca-bundle"} {
+		if find(objs, "ConfigMap", n) != nil {
+			t.Errorf("%s must not render with injection off", n)
+		}
+	}
+	if find(objs, "Secret", release+"-shock-upstream-ca") != nil {
+		t.Error("the upstream roots Secret must not render with injection off")
+	}
+	_, intercept := runnerEgress(t, objs)
+	if len(intercept) != 0 {
+		t.Errorf("no interception rules by default, got %v", intercept)
+	}
+	sb := sandboxTemplate(t, objs)
+	for _, e := range sb.Spec.PodTemplate.Spec.Containers[0].Env {
+		if e.Name == "SHOCK_EGRESS_CA_FILE" {
+			t.Error("SHOCK_EGRESS_CA_FILE must not be set with injection off")
+		}
+	}
+	for _, v := range sb.Spec.PodTemplate.Spec.Volumes {
+		if v.Name == "egress-ca" || v.Name == "registries" {
+			t.Errorf("volume %s must not render with injection off", v.Name)
+		}
 	}
 }

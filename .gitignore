@@ -13,6 +13,10 @@ Thumbs.db
 !.env.example
 *.pem
 *.key
+# Mozilla's public CA roots, which the chart ships for Cilium's originatingTLS.
+# No private key; pinned by the digest in its header and checked by
+# `make ca-bundle-check`.
+!charts/shock/files/upstream-ca-bundle.pem
 kubeconfig
 kubeconfig.*
 

@@ -5,6 +5,8 @@ SETUP_ENVTEST ?= $(shell $(GO) env GOPATH)/bin/setup-envtest
 ENVTEST_K8S   ?= 1.35.x
 KIND          ?= kind
 KIND_CLUSTER  ?= shock-e2e
+KIND_CILIUM_CLUSTER ?= shock-cilium
+CILIUM_VERSION ?= 1.20.2
 KIND_NODE_IMAGE ?= kindest/node:v1.35.8
 AGENT_SANDBOX_VERSION ?= v1.0.2
 IMAGE         ?= shock:dev
@@ -12,11 +14,11 @@ CHANNEL       ?= stable
 RUNNER_IMAGE  ?= shock-runner:dev
 CHART         := charts/shock
 E2E_NAMESPACE ?= shock-e2e
-export AGENT_SANDBOX_VERSION E2E_NAMESPACE
+export AGENT_SANDBOX_VERSION E2E_NAMESPACE KIND_CILIUM_CLUSTER CILIUM_VERSION KIND_NODE_IMAGE
 
-.PHONY: all build fmt vet lint test envtest helm-lint helm-template chart-golden trusted-domains bump-claude e2e-kind e2e-setup e2e e2e-teardown image image-runner clean
+.PHONY: all build fmt vet lint test envtest helm-lint helm-template chart-golden trusted-domains ca-bundle ca-bundle-check bump-claude e2e-kind e2e-setup e2e e2e-teardown e2e-cilium e2e-cilium-setup e2e-cilium-teardown image image-runner clean
 
-all: fmt vet lint test helm-lint chart-golden
+all: fmt vet lint test ca-bundle-check helm-lint chart-golden
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -o bin/shock ./cmd/shock
@@ -31,11 +33,11 @@ lint:
 	$(GOLANGCI_LINT) run ./...
 
 test:
-	$(GO) test ./internal/... ./cmd/...
+	$(GO) test ./internal/... ./cmd/... ./test/runner/...
 
 # envtest: real kube-apiserver + etcd for the API concurrency tests.
 envtest:
-	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S) -p path)" $(GO) test -tags envtest ./test/envtest/... -count=1
+	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S) -p path)" $(GO) test -tags envtest ./test/envtest/... ./test/e2e-cilium/... -count=1
 
 helm-lint:
 	helm lint $(CHART) -f test/values/minimal.yaml
@@ -47,6 +49,16 @@ helm-template:
 # Regenerates charts/shock/files/anthropic-trusted-domains.txt.
 trusted-domains:
 	./hack/update-trusted-domains.sh
+
+# Refetches charts/shock/files/upstream-ca-bundle.pem (originatingTLS roots)
+# from curl.se, verified against the digest published beside it. `check`
+# re-verifies the committed file offline and runs in CI.
+ca-bundle:
+	./hack/update-ca-bundle.sh
+
+ca-bundle-check:
+	./hack/update-ca-bundle.sh check
+
 
 # Pins images/*/Dockerfile and the chart annotation to Anthropic's current
 # Claude Code release (CHANNEL=latest|stable); CHANNEL=check only verifies them.
@@ -82,6 +94,17 @@ e2e-kind: e2e-setup e2e
 
 e2e-teardown:
 	$(KIND) delete cluster --name $(KIND_CLUSTER)
+
+# Secret injection (spec section 9) needs Cilium's L7 proxy and policy-secret
+# sync, so it runs on its own cluster; the default e2e keeps kindnet.
+e2e-cilium-setup:
+	./hack/cilium-lab.sh
+
+e2e-cilium:
+	KUBECONTEXT=kind-$(KIND_CILIUM_CLUSTER) $(GO) test -tags e2e_cilium ./test/e2e-cilium/... -count=1 -timeout 25m -v
+
+e2e-cilium-teardown:
+	$(KIND) delete cluster --name $(KIND_CILIUM_CLUSTER)
 
 clean:
 	rm -rf bin
