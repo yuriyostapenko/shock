@@ -47,5 +47,7 @@ anything, including a Dependabot pull request, the daily run fails with
 That is the intended behavior, not a fault: it keeps an unrelated change out of
 the Claude release. Cut the release when you merge, rather than discovering it
 from a red run — a patch for a dependency bump, a minor if the change was a
-feature. Both ecosystems are monthly so this happens in at most two windows a
+feature. When you would rather carry the bump along with the pending work,
+dispatch `release-claude.yaml` with **ignore unreleased commits** and release
+the lot by hand. Both ecosystems are monthly so this happens in at most two windows a
 month. See [CONTRIBUTING.md](CONTRIBUTING.md#releasing).
