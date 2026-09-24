@@ -2,8 +2,8 @@ name: release-tag
 
 # Tags and publishes a Claude Code bump once it lands on main. Runs on any push
 # touching the pinned files and releases only when the whole delta since the
-# newest vX.Y.Z tag is those three files, which is what a patch release means;
-# anything else exits green and waits for a hand-cut minor.
+# newest vX.Y.Z tag is those three files, so the release contains the bump and
+# nothing else; anything else exits green and waits to be released by hand.
 on:
   push:
     branches: [main]
@@ -47,6 +47,7 @@ jobs:
           changed="$(git diff --name-only "$last"..HEAD | sort | tr '\n' ' ')"
           pins="charts/shock/Chart.yaml images/orchestrator/Dockerfile images/runner/Dockerfile "
           [ "$changed" = "$pins" ] || skip "changes since $last are not only the pin: $changed"
+          # A dependency bump with no behavior change of our own: patch.
           IFS=. read -r x y z <<<"${last#v}"
           version="$x.$y.$((z + 1))"
           sha="$(git rev-parse HEAD)"
