@@ -6,7 +6,7 @@
 # chart mounts the per-session PVC. mise and uv install tooling without root.
 # Build FROM this image to add toolchains.
 
-ARG CLAUDE_CODE_VERSION=2.1.270
+ARG CLAUDE_CODE_VERSION=2.1.274
 ARG MISE_VERSION=v2026.9.9
 ARG UV_VERSION=0.12.14
 
