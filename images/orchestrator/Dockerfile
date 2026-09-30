@@ -6,7 +6,7 @@
 # version, commit and time (`shock version`). Runtime: distroless base-debian13.
 
 ARG GO_VERSION=1.27
-ARG CLAUDE_CODE_VERSION=2.1.277
+ARG CLAUDE_CODE_VERSION=2.1.280
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-trixie AS build
 WORKDIR /src
