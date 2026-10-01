@@ -66,6 +66,12 @@ server in envtest, and in a live run against a Claude self-hosted environment
 
 ## Design
 
+- Sessions get registry and API credentials they never hold: with Cilium,
+  `secretInjection` has the node's Envoy set the bound header from a Secret on
+  the way out, so the container sees only a placeholder and the credential
+  works against the hosts and paths it is bound to. cert-manager issues the
+  interception certificate, and the roots Cilium verifies the real host against
+  are Mozilla's list, pinned by a digest CI re-checks.
 - Anthropic's orchestrator invokes a fast `spawn-runner` hook that only
   declares session intent: create or patch the session's Sandbox, publish an
   immutable work-order Secret, stamp `pending-spawn`, exit. At the
@@ -97,8 +103,10 @@ operations document.
 Optional, recommended:
 
 - Cilium, for the default `network.mode: cilium`: default-deny egress by host
-  name with TLS SNI enforcement. Without it, `kubernetes` mode filters by port
-  only and `none` renders no policy.
+  name with TLS SNI enforcement, and `secretInjection`. Without it, `kubernetes`
+  mode filters by port only and `none` renders no policy.
+- cert-manager, only when `secretInjection` is enabled with its default
+  `pki: managed`, which issues the interception CA and certificate.
 - Prometheus Operator, for the default `monitoring.enabled: true`: PodMonitor
   and alert rules. Set it to `false` on clusters without the CRDs.
 
@@ -115,6 +123,8 @@ Optional, recommended:
 | `images/orchestrator/Dockerfile` | Distroless image: `claude`, `shock`, `/hooks/spawn-runner` symlink |
 | `images/runner/Dockerfile` | Default runner image: `claude`, git, ssh, `mise` and `uv` for root-free tool installs |
 | `test/chart/` | Typed decode of the rendered Sandbox template, forced-field and RBAC checks |
+| `test/runner/` | The runner entrypoint's egress-CA trust wiring |
+| `test/e2e-cilium/` | Secret injection: policy conformance against Cilium's own CRD, and the header-rewrite behavior on a Cilium cluster |
 | `test/envtest/` | API-concurrency tests against a real kube-apiserver |
 | `test/e2e/` | kind e2e including agent-sandbox conformance |
 | `plans/shock-spec.md` | Implementation spec, acceptance criteria and verification record |
@@ -131,6 +141,8 @@ make lint             # golangci-lint
 make helm-lint chart-golden
 make envtest          # downloads kube-apiserver/etcd for ENVTEST_K8S, runs test/envtest
 make e2e-kind         # creates kind cluster, installs agent-sandbox, runs test/e2e
+make e2e-cilium-setup # kind + Cilium lab cluster for secret injection
+make e2e-cilium       # header-rewrite behavior against that cluster
 make image IMAGE=ghcr.io/you/shock:dev
 bin/shock version   # git tag or pseudo-version, commit, commit time, Go version
 ```

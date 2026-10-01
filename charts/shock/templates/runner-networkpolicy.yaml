@@ -1,6 +1,12 @@
 {{- $mode := .Values.network.mode -}}
 {{- $n := .Values.network -}}
-{{- $fqdns := include "shock.fqdnEntries" . | fromJsonArray -}}
+{{- $allFqdns := include "shock.fqdnEntries" . | fromJsonArray -}}
+{{- $injected := include "shock.injectedCredentials" . | fromJsonArray -}}
+{{- $injectedHosts := include "shock.injectedHosts" . | fromJson -}}
+{{- /* An injected host carries its own interception rule on the runner policy;
+       a plain L4 allow for the same destination would admit it unproxied. */ -}}
+{{- $fqdns := list -}}
+{{- range $allFqdns }}{{ if not (hasKey $injectedHosts .host) }}{{ $fqdns = append $fqdns . }}{{ end }}{{ end -}}
 {{- $components := list "runner" "orchestrator" "session-controller" -}}
 {{- if eq $mode "cilium" }}
 {{- range $component := $components }}
@@ -40,7 +46,7 @@ spec:
         - kube-apiserver
     {{- end }}
     {{- if ne $component "session-controller" }}
-    {{- range $fqdns }}
+    {{- range (eq $component "runner" | ternary $fqdns $allFqdns) }}
     - toFQDNs:
         {{- if contains "*" .pattern }}
         - matchPattern: {{ .pattern | quote }}
@@ -57,11 +63,62 @@ spec:
             - {{ .pattern | quote }}
           {{- end }}
     {{- end }}
+    {{- if eq $component "runner" }}
+    {{- range $injected }}
+    {{- /* Secret injection (spec section 9): Cilium terminates TLS with the
+           chart's certificate, REPLACEs the bound header from the Secret and
+           re-originates to the real host. Nothing runs in the Pod. */}}
+    - toFQDNs:
+        - matchName: {{ .host | quote }}
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+          {{- if $n.enforceSNI }}
+          serverNames:
+            - {{ .host | quote }}
+          {{- end }}
+          {{- $terminating := include "shock.terminatingTLSSecret" $ | fromJson }}
+          terminatingTLS:
+            secret:
+              namespace: {{ $terminating.namespace | quote }}
+              name: {{ $terminating.name | quote }}
+          {{- /* Mandatory: a rule without it lets Cilium forward the intercepted
+                 request upstream in cleartext (spec section 9). */}}
+          {{- $upstream := include "shock.upstreamCASecret" $ | fromJson }}
+          originatingTLS:
+            secret:
+              namespace: {{ $upstream.namespace | quote }}
+              name: {{ $upstream.name | quote }}
+          rules:
+            http:
+              {{- $cred := . }}
+              {{- $paths := .paths | default (list "") }}
+              {{- $methods := .methods | default (list "") }}
+              {{- range $p := $paths }}
+              {{- range $m := $methods }}
+              - {{ if $p }}path: {{ $p | quote }}
+                {{ end }}{{ if $m }}method: {{ $m | quote }}
+                {{ end }}headerMatches:
+                  - name: {{ $cred.header | quote }}
+                    mismatch: REPLACE
+                    secret:
+                      namespace: {{ $cred.secretNamespace | quote }}
+                      name: {{ $cred.secretName | quote }}
+              {{- end }}
+              {{- end }}
+              {{- if or $cred.paths $cred.methods }}
+              {{- /* Requests outside the bound scope reach the host unmodified;
+                     without this they would be dropped, not passed through. */}}
+              - {}
+              {{- end }}
+    {{- end }}
+    {{- end }}
     {{- end }}
 {{- end }}
 {{- else if eq $mode "kubernetes" }}
 {{- $ports := list -}}
-{{- range $fqdns }}{{ if not (has .port $ports) }}{{ $ports = append $ports .port }}{{ end }}{{ end -}}
+{{- range $allFqdns }}{{ if not (has .port $ports) }}{{ $ports = append $ports .port }}{{ end }}{{ end -}}
 {{- range $component := $components }}
 {{- $labels := dict "root" $ "component" $component }}
 ---

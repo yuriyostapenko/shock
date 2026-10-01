@@ -81,6 +81,7 @@ defaultTag, and an empty repository or resolved tag fails the render.
 {{- if not (has .Values.network.mode (list "cilium" "kubernetes" "none")) -}}
 {{- fail "network.mode must be cilium, kubernetes or none" -}}
 {{- end -}}
+{{- include "shock.validateSecretInjection" . -}}
 {{- end -}}
 
 {{/* Effective allow list (JSON array of fqdnEntry): allowedFQDNs, the Trusted
@@ -124,12 +125,187 @@ list if enabled, extraAllowedFQDNs; deduped by host:port, minus excludeFQDNs. */
 {{- end -}}
 
 {{/*
+Secret injection validation (spec section 9). Every failure names the offending
+entry; nothing here renders output.
+*/}}
+{{- define "shock.validateSecretInjection" -}}
+{{- $si := .Values.secretInjection -}}
+{{- if $si.enabled -}}
+{{- if ne .Values.network.mode "cilium" -}}
+{{- fail (printf "secretInjection.enabled requires network.mode cilium (got %s): only Cilium can rewrite the header outside the Pod" .Values.network.mode) -}}
+{{- end -}}
+{{- if empty $si.placeholder -}}
+{{- fail "secretInjection.placeholder must not be empty" -}}
+{{- end -}}
+{{- if not (has $si.pki (list "managed" "existing")) -}}
+{{- fail (printf "secretInjection.pki must be managed or existing (got %s)" $si.pki) -}}
+{{- end -}}
+{{- if empty $si.credentials -}}
+{{- fail "secretInjection.enabled with no secretInjection.credentials: nothing would be injected" -}}
+{{- end -}}
+{{- /* originatingTLS is mandatory: Cilium treats a matched rule with no client
+       TLS context as permission to use a raw socket upstream, which would send
+       the injected credential in cleartext (spec section 9). Unset, the chart's
+       own Mozilla bundle fills it, so the only way to end up without roots is an
+       empty bundle file. */ -}}
+{{- if not $si.upstreamCA.existingSecret.name -}}
+{{- if not (.Files.Get "files/upstream-ca-bundle.pem" | trim) -}}
+{{- fail "files/upstream-ca-bundle.pem is missing or empty and secretInjection.upstreamCA.existingSecret is unset: without upstream roots Cilium forwards the intercepted request, credential included, in cleartext. Run `make ca-bundle`, or set your own Secret." -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $si.pki "managed" -}}
+{{- if or $si.tls.certificateSecret.name $si.ca.existingConfigMap $si.ca.bundle -}}
+{{- fail "secretInjection.pki is managed, so cert-manager issues the certificate: unset secretInjection.tls.certificateSecret and secretInjection.ca, or switch to pki: existing" -}}
+{{- end -}}
+{{- else -}}
+{{- if not $si.tls.certificateSecret.name -}}
+{{- fail "secretInjection.pki is existing, so secretInjection.tls.certificateSecret.name is required: Cilium presents it to the runner for every injected host" -}}
+{{- end -}}
+{{- if and (empty $si.ca.existingConfigMap) (empty $si.ca.bundle) -}}
+{{- fail "set secretInjection.ca.existingConfigMap or secretInjection.ca.bundle: the runner must trust the interception CA" -}}
+{{- end -}}
+{{- if and $si.ca.existingConfigMap $si.ca.bundle -}}
+{{- fail "set only one of secretInjection.ca.existingConfigMap and secretInjection.ca.bundle" -}}
+{{- end -}}
+{{- end -}}
+{{- /* Hosts of plain allow-list entries; an injected host must not also be reachable without the proxy. */ -}}
+{{- $plain := include "shock.fqdnEntries" . | fromJsonArray -}}
+{{- $seenHost := dict -}}
+{{- $seenName := dict -}}
+{{- range $si.credentials -}}
+{{- $c := . -}}
+{{- if hasKey $seenName $c.name -}}
+{{- fail (printf "secretInjection.credentials: duplicate name %q" $c.name) -}}
+{{- end -}}
+{{- $_ := set $seenName $c.name true -}}
+{{- if hasKey $seenHost $c.host -}}
+{{- fail (printf "secretInjection.credentials[%s]: host %q is already injected; one host is one rule" $c.name $c.host) -}}
+{{- end -}}
+{{- $_ := set $seenHost $c.host true -}}
+{{- if eq $c.host "api.anthropic.com" -}}
+{{- fail (printf "secretInjection.credentials[%s]: api.anthropic.com can never be intercepted; the control plane, inference and the session's own OAuth token must stay end to end" $c.name) -}}
+{{- end -}}
+{{- if or (contains "*" $c.host) (contains ":" $c.host) -}}
+{{- fail (printf "secretInjection.credentials[%s]: host %q must be an exact FQDN on 443, without wildcard or port" $c.name $c.host) -}}
+{{- end -}}
+{{- if not $c.secret.name -}}
+{{- fail (printf "secretInjection.credentials[%s]: secret.name is required" $c.name) -}}
+{{- end -}}
+{{- range $plain -}}
+{{- if and (contains "*" .host) (hasSuffix (trimPrefix "*" .host) $c.host) -}}
+{{- fail (printf "secretInjection.credentials[%s]: host %s is covered by allow-list entry %s, which would admit it on L4 without the proxy; add %s to network.excludeFQDNs" $c.name $c.host .host .host) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- /* A client config that names a credential Secret would put it in a ConfigMap. */ -}}
+{{- range $file, $body := $si.clientConfigs -}}
+{{- $b := $body -}}
+{{- range $si.credentials -}}
+{{- if contains .secret.name $b -}}
+{{- fail (printf "secretInjection.clientConfigs[%s] contains the credential Secret name %q; client configs carry the placeholder only" $file .secret.name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+shock.injectedCredentials: the credentials list with namespaces defaulted to
+the release namespace, as a JSON array. Empty when injection is off, so every
+consumer can range over it unconditionally.
+*/}}
+{{- define "shock.injectedCredentials" -}}
+{{- $si := .Values.secretInjection -}}
+{{- $out := list -}}
+{{- if $si.enabled -}}
+{{- range $si.credentials -}}
+{{- $out = append $out (dict
+  "name" .name
+  "host" .host
+  "header" (default "Authorization" .header)
+  "paths" (default (list) .paths)
+  "methods" (default (list) .methods)
+  "secretNamespace" (default $.Release.Namespace .secret.namespace)
+  "secretName" .secret.name
+) -}}
+{{- end -}}
+{{- end -}}
+{{- $out | toJson -}}
+{{- end -}}
+
+{{/* Hosts carrying an interception rule; they are dropped from the plain toFQDNs set. */}}
+{{- define "shock.injectedHosts" -}}
+{{- $out := dict -}}
+{{- range include "shock.injectedCredentials" . | fromJsonArray -}}
+{{- $_ := set $out .host true -}}
+{{- end -}}
+{{- $out | toJson -}}
+{{- end -}}
+
+{{/* Names of the cert-manager objects rendered under pki: managed. */}}
+{{- define "shock.egressSelfSignedIssuerName" -}}
+{{- include "shock.componentName" (dict "root" . "component" "egress-selfsigned") -}}
+{{- end -}}
+{{- define "shock.egressCAName" -}}
+{{- include "shock.componentName" (dict "root" . "component" "egress-ca") -}}
+{{- end -}}
+{{- define "shock.egressCertName" -}}
+{{- include "shock.componentName" (dict "root" . "component" "egress-tls") -}}
+{{- end -}}
+
+{{/*
+terminatingTLS Secret: the cert-manager leaf under pki: managed, otherwise the
+operator's. Namespace + name as JSON.
+*/}}
+{{- define "shock.terminatingTLSSecret" -}}
+{{- $si := .Values.secretInjection -}}
+{{- if eq $si.pki "managed" -}}
+{{- dict "namespace" .Release.Namespace "name" (include "shock.egressCertName" .) | toJson -}}
+{{- else -}}
+{{- dict "namespace" (default .Release.Namespace $si.tls.certificateSecret.namespace) "name" $si.tls.certificateSecret.name | toJson -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+originatingTLS Secret: the operator's override, or the chart's own Secret
+rendered from the pinned Mozilla bundle. Namespace + name as JSON.
+*/}}
+{{- define "shock.upstreamCASecret" -}}
+{{- $u := .Values.secretInjection.upstreamCA -}}
+{{- if $u.existingSecret.name -}}
+{{- dict "namespace" (default .Release.Namespace $u.existingSecret.namespace) "name" $u.existingSecret.name | toJson -}}
+{{- else -}}
+{{- dict "namespace" .Release.Namespace "name" (include "shock.componentName" (dict "root" . "component" "upstream-ca")) | toJson -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+How the runner gets the interception CA, as JSON:
+  kind      configMap | secret
+  name      object name
+  namespace only meaningful for the chart's own objects
+Under pki: managed it is the issued leaf Secret, from which the volume selects
+`ca.crt` alone so no private key is projected (spec section 9).
+*/}}
+{{- define "shock.egressCASource" -}}
+{{- $si := .Values.secretInjection -}}
+{{- if eq $si.pki "managed" -}}
+{{- dict "kind" "secret" "name" (include "shock.egressCertName" .) | toJson -}}
+{{- else if $si.ca.existingConfigMap -}}
+{{- dict "kind" "configMap" "name" $si.ca.existingConfigMap | toJson -}}
+{{- else -}}
+{{- dict "kind" "configMap" "name" (include "shock.componentName" (dict "root" . "component" "egress-ca-bundle")) | toJson -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 The default runner podTemplate, rendered from values. Helm merges
 runner.podTemplate over it (mergeOverwrite: maps merge, lists replace); the
 hook then forces the template-contract fields at spawn time.
 */}}
 {{- define "shock.runnerPodTemplate" -}}
 {{- $r := .Values.runner -}}
+{{- $si := .Values.secretInjection -}}
 metadata:
   labels:
     {{- include "shock.labels" (dict "root" . "component" "runner") | nindent 4 }}
@@ -214,9 +390,17 @@ spec:
         - {{ . | quote }}
         {{- end }}
       {{- end }}
-      {{- with $r.extraEnv }}
+      {{- if or $r.extraEnv $si.enabled }}
       env:
+        {{- if $si.enabled }}
+        {{- /* The entrypoint builds a combined trust bundle from this and exports
+               the per-runtime trust variables (spec section 9). */}}
+        - name: SHOCK_EGRESS_CA_FILE
+          value: /etc/shock/egress-ca/ca.crt
+        {{- end }}
+        {{- with $r.extraEnv }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       ports:
         - name: health
@@ -250,6 +434,16 @@ spec:
           subPath: CLAUDE.md
           readOnly: true
         {{- end }}
+        {{- if $si.enabled }}
+        - name: egress-ca
+          mountPath: /etc/shock/egress-ca
+          readOnly: true
+        {{- if $si.clientConfigs }}
+        - name: registries
+          mountPath: /etc/shock/registries
+          readOnly: true
+        {{- end }}
+        {{- end }}
         {{- with $r.extraVolumeMounts }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -261,6 +455,31 @@ spec:
     - name: instructions
       configMap:
         name: {{ include "shock.componentName" (dict "root" . "component" "runner-instructions") }}
+    {{- end }}
+    {{- if $si.enabled }}
+    {{- $caSource := include "shock.egressCASource" . | fromJson }}
+    {{- /* The CA certificate only. A Secret source is restricted to ca.crt by
+           `items`, so no private key is projected; credential Secrets and the
+           upstream-roots Secret are referenced by the policy, never by a Pod. */}}
+    - name: egress-ca
+      {{- if eq $caSource.kind "secret" }}
+      secret:
+        secretName: {{ $caSource.name }}
+        items:
+          - key: ca.crt
+            path: ca.crt
+      {{- else }}
+      configMap:
+        name: {{ $caSource.name }}
+        items:
+          - key: ca.crt
+            path: ca.crt
+      {{- end }}
+    {{- if $si.clientConfigs }}
+    - name: registries
+      configMap:
+        name: {{ include "shock.componentName" (dict "root" . "component" "registries") }}
+    {{- end }}
     {{- end }}
     {{- with $r.extraVolumes }}
     {{- toYaml . | nindent 4 }}

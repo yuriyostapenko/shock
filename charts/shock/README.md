@@ -30,6 +30,7 @@ Optional, recommended:
 | --- | --- | --- |
 | [Cilium](https://cilium.io) (default `network.mode: cilium`) | Default-deny egress by host name with TLS SNI enforcement; the only mode that limits runners to an allow list. Tested with 1.20. | `network.mode: kubernetes` renders plain NetworkPolicy (ports only, any address), `none` renders nothing. |
 | [Prometheus Operator](https://prometheus-operator.dev) (default `monitoring.enabled: true`) | PodMonitor scraping all three components and the alert rules for stale polls, failed spawns and stranded sessions. | Set `monitoring.enabled: false`, or the install fails on the missing CRDs. |
+| [cert-manager](https://cert-manager.io), only with `secretInjection.enabled` | Issues the interception CA and the certificate Cilium presents, under the default `secretInjection.pki: managed`. | Set `secretInjection.pki: existing` and supply the certificate yourself, or the install fails on the missing CRDs. |
 
 ## Install
 
@@ -118,7 +119,10 @@ and add toolchains as root before switching back to `USER 1000`. Whatever the
 image, the contract is: `claude` at 2.1.224 or later, pinned; `git >= 2.32`; a
 non-root user whose `$HOME` is `runner.storage.mountPath`, the PVC, with
 `runner.baseDir` inside it; and, optionally, a credentials wrapper wired with
-`runner.extraArgs: ["--exec-path", "/opt/claude/wrapper.sh"]`.
+`runner.extraArgs: ["--exec-path", "/opt/claude/wrapper.sh"]`. With
+`secretInjection` on the image must also trust the interception CA; the default
+entrypoint does that from `SHOCK_EGRESS_CA_FILE` (see
+[Certificates](#certificates)).
 
 ## How a session runs
 
@@ -194,6 +198,9 @@ types and enums. The load-bearing ones:
 | `environment.existingSecret` | `""` | Secret with key `environment-secret`. Required unless `secretValue` is set. |
 | `orchestrator.image.tag`, `runner.image.tag` | `""` | Fall back to the chart's `appVersion`. The `digest` fields pin the images; the release sets them. |
 | `runner.hostUsers` | unset | `false` runs the runner Pod in a user namespace so root inside the container can use `apt`. |
+| `secretInjection.enabled` | `false` | Inject credentials into runner egress without the session holding them; needs `network.mode: cilium`. See [Secret injection](#secret-injection). |
+| `secretInjection.pki` | `managed` | `managed` has cert-manager issue the interception CA and certificate; `existing` takes your own references. |
+| `secretInjection.upstreamCA.existingSecret` | none | Overrides the public roots the chart ships for `originatingTLS`. |
 | `runner.flags.useAnthropicGitProxy` | `true` | Git goes through `api.anthropic.com` with the session creator's GitHub connection; the runner holds no git credentials. Set `false` when supplying credentials yourself. |
 | `orchestrator.expectedSpawnSeconds` | `180` | Server-side spawn lease, shared by all replicas. Must exceed `hookTimeout + 5` (rendering fails otherwise). Includes the initial suspension round-trip. |
 | `orchestrator.hookTimeout` | `30` | The hook keeps its API work within 80% of this. |
@@ -260,17 +267,233 @@ the dedicated values (`runner.resources`, `runner.extraEnv`, `runner.extraVolume
   `get` Secrets and `get/list/watch` Pods. It never deletes Pods or Secrets.
 - Runner Pods never receive a service-account token.
 
-## Registry credentials
+## Registry and API credentials
 
-1. **Pull-through mirror (recommended).** Bake mirror URLs into the runner
-   image or inject them with `runner.extraEnv`. Add the mirror host to
+Three routes, in the order to prefer them:
+
+1. **Pull-through mirror** for public registries. Bake mirror URLs into the
+   runner image or inject them with `runner.extraEnv`. Add the mirror host to
    `network.allowedFQDNs`; otherwise installs hang against default-deny egress
-   and fail on timeout instead of a clear error.
-2. **Wrapper.** `runner.extraArgs: ["--exec-path", "/opt/claude/wrapper.sh"]`;
-   mount the credentials Secret with `runner.extraVolumes` and
-   `runner.extraVolumeMounts`. The wrapper materializes `~/.npmrc`,
-   `NuGet.config` or a docker config before `exec "$CLAUDE_RUNNER_CLAUDE_BIN" "$@"`.
-   Never bake broad push tokens into the shared image.
+   and fail on timeout instead of a clear error. No credential at all.
+2. **Secret injection** (below) for anything whose credential travels in an
+   HTTP header: GitHub Packages, a private registry, an internal API. The
+   session never holds the credential.
+3. **Wrapper** for everything else: SSH keys, database passwords, cloud STS
+   sessions. `runner.extraArgs: ["--exec-path", "/opt/claude/wrapper.sh"]`;
+   mount the Secret with `runner.extraVolumes` and `runner.extraVolumeMounts`.
+   The wrapper materializes what it needs before
+   `exec "$CLAUDE_RUNNER_CLAUDE_BIN" "$@"`. This one is agent-visible by
+   construction: whatever the wrapper writes, the session can read. Mint it per
+   session and scope it to the session creator with the session JWT
+   (`self-hosted-runner decode-token`). Never bake broad tokens into the shared
+   image, which every session of every member runs.
+
+## Secret injection
+
+`secretInjection` gives sessions credentials they never hold. Cilium's
+node-local Envoy terminates the runner's TLS connection to each listed host,
+sets the bound header from a Kubernetes Secret, and re-originates to the real
+host. The credential is never in the Pod: not in an environment variable, a
+mount, the workspace disk or the Pod spec. The session sees a placeholder. This
+is the self-hosted counterpart of the API credentials Anthropic-hosted
+environments offer, which a self-hosted environment does not have.
+
+It needs `network.mode: cilium` and Cilium 1.17 or later with its L7 proxy and
+policy-secret sync, plus cert-manager for the default `pki: managed`. The chart
+refuses to render otherwise.
+
+```yaml
+secretInjection:
+  enabled: true
+  # pki: managed is the default: cert-manager issues the interception CA and
+  # the certificate Cilium presents, and the chart ships the public roots
+  # Cilium verifies the real host against. See Certificates below.
+  credentials:
+    - name: ghcr
+      host: ghcr.io
+      secret: {namespace: shock-credentials, name: ghcr-pat}
+      paths: ["/token(\\?.*)?"]       # the OCI token endpoint only
+    - name: npm-pkg
+      host: npm.pkg.github.com
+      secret: {namespace: shock-credentials, name: npm-pat}
+  clientConfigs:
+    npmrc: |
+      //npm.pkg.github.com/:_authToken=proxy-injected
+```
+
+### What it protects and what it does not
+
+- **The header is replaced, not matched.** Whatever the session sends in the
+  bound header on a matching request, Envoy overwrites it; a missing header is
+  added. The placeholder is a convention for client configs and for the agent,
+  not a gate. So **every process in the session can use the credential against
+  the bound host and paths**, the same property Anthropic's API credentials
+  have. Bind narrowly: one host, the least scope the registry offers, and a
+  path where the protocol allows one.
+- **Only listed hosts are intercepted.** Everything else keeps end-to-end TLS
+  with the SNI check below. `api.anthropic.com` can never be injected; the
+  render fails, because the control plane, inference and the session's own
+  OAuth token must stay untouched.
+- **A derived token still enters the Pod.** `ghcr.io` exchanges `Basic`
+  credentials on `GET /token` for a short-lived, repository-scoped `Bearer`
+  JWT, which the client then presents from inside the Pod on `/v2/...`. Scope
+  the credential to `/token` so the token itself never leaves the node.
+- **A tool that does not trust the CA fails loudly**, with a certificate error
+  on injected hosts only. Nothing is sent in the clear. The one configuration
+  that would leak is an interception rule without upstream roots, which the
+  chart cannot render; see [Certificates](#certificates).
+
+### Put the Secrets where SHOCK cannot read them
+
+The orchestrator and session-controller Roles hold `secrets get` in the release
+namespace, and Kubernetes RBAC cannot match names by prefix, so a credential
+Secret in the release namespace is readable by both. Cilium reads policy
+Secrets from any namespace, so use a dedicated one. The upstream roots are
+public and can live anywhere; only the credentials need this:
+
+```sh
+kubectl create namespace shock-credentials
+
+# One key, whose value is the whole header value.
+kubectl -n shock-credentials create secret generic npm-pat \
+  --from-literal=value="Bearer $GITHUB_PAT"
+
+# Basic takes user:token, base64 encoded, with the scheme in front.
+kubectl -n shock-credentials create secret generic ghcr-pat \
+  --from-literal=value="Basic $(printf '%s' "$GITHUB_USER:$GITHUB_PAT" | base64 -w0)"
+```
+
+GitHub Packages accepts only a classic personal access token; `read:packages`
+is the scope to grant. Header encoding per registry:
+
+| Host | Header value | Scope |
+| --- | --- | --- |
+| `npm.pkg.github.com` | `Bearer <PAT>` | every request |
+| `nuget.pkg.github.com` | `Basic <base64 user:PAT>` | every request |
+| `maven.pkg.github.com` | `Basic <base64 user:PAT>` | every request |
+| `ghcr.io` | `Basic <base64 user:PAT>` | `paths: ["/token(\\?.*)?"]` |
+
+### Certificates
+
+Interception needs three pieces of PKI. Two of them the chart can own; the third
+it deliberately will not.
+
+**The certificate Cilium presents, and the CA behind it.** With the default
+`secretInjection.pki: managed` the chart renders four namespaced cert-manager
+objects: a self-signed `Issuer`, a CA `Certificate`, a CA `Issuer`, and a leaf
+`Certificate` whose SANs are exactly the injected hosts. There is nothing to
+prepare and nothing to rotate. Adding a host to `credentials` reissues the
+certificate with the new SAN. cert-manager becomes a prerequisite, the way
+Cilium already is for `network.mode: cilium`.
+
+The runner trusts that CA through the issued Secret's `ca.crt`, mounted with an
+`items` selector naming that key alone, so the leaf private key is never
+projected into the session and the CA key's Secret is referenced by no Pod at
+all.
+
+Set `pki: existing` to use your own PKI instead. Then
+`tls.certificateSecret` must name a `kubernetes.io/tls` Secret with a SAN for
+every injected host, and `ca.existingConfigMap` or `ca.bundle` must carry that
+CA's public certificate. The chart renders no cert-manager objects in this mode,
+and refuses to render if a `pki: managed` field is also set, so a leftover value
+cannot look effective.
+
+**The public roots Cilium verifies the real host against.** The chart ships
+these, so there is nothing to set. `charts/shock/files/upstream-ca-bundle.pem`
+is Mozilla's CA list exactly as `curl.se` publishes it, fetched by
+`make ca-bundle` and verified against the digest `curl.se` publishes beside it.
+That digest is recorded in the file's own header, `make ca-bundle-check`
+re-verifies it offline, and CI runs that check on every push, so a file edited
+by hand fails the build. You can verify it yourself: the recorded digest is
+published at `https://curl.se/ca/cacert.pem.sha256`.
+
+To use your own roots instead, for an internal PKI or a vetted list, point the
+chart at a Secret with key `ca.crt`:
+
+```yaml
+secretInjection:
+  upstreamCA:
+    existingSecret: {namespace: shock-credentials, name: upstream-roots}
+```
+
+If you already run [trust-manager](https://cert-manager.io/docs/trust/trust-manager/),
+its `Bundle` is one way to produce that Secret. The chart does not render the
+Bundle for you: it is cluster-scoped, and a Secret target needs trust-manager's
+`secretTargets.enabled`, which widens its access to Secrets. Apply it yourself
+and point `existingSecret` at the result:
+
+```yaml
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata: {name: shock-upstream-roots}
+spec:
+  sources: [{useDefaultCAs: true}]
+  target:
+    secret: {key: ca.crt}
+    namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: <your namespace>}}
+```
+
+Deriving the roots from a machine's own trust store works too, with one caveat
+worth stating plainly: if that machine sits behind a TLS-inspecting proxy, its
+store holds that proxy's CA and you would be teaching Cilium to accept
+certificates that proxy issues. Check what you are about to load.
+
+**Upstream roots are never optional**, and that is a safety property rather
+than tidiness. Cilium treats a matched rule carrying no `originatingTLS` as
+permission to use a raw socket upstream, so a rule with only `terminatingTLS`
+would have Cilium decrypt the runner's request and forward it, injected
+credential included, in cleartext. Every rule the chart renders carries
+`originatingTLS`, and the render fails if the shipped roots file is missing or
+empty and you have set no override.
+
+### Client configs and the agent
+
+`clientConfigs` becomes a ConfigMap mounted read-only at
+`/etc/shock/registries`. The files carry the placeholder, so they hold no
+secret, and the render fails if one names a credential Secret. Point tools at
+them through `runner.extraEnv`, for example
+`NPM_CONFIG_GLOBALCONFIG: /etc/shock/registries/npmrc` or
+`DOCKER_CONFIG: /etc/shock/registries/docker`.
+
+With injection on, the managed instructions the runner loads
+(`/etc/claude-code/CLAUDE.md`) gain a generated block naming the injected hosts,
+their path scope and the placeholder, so the agent uses `proxy-injected`
+instead of hunting for a token it cannot find. The block names hosts only,
+never a Secret.
+
+### Cilium settings
+
+Policy Secrets must reach Envoy. The SDS defaults of a new Cilium install are
+what the chart expects:
+
+```yaml
+tls:
+  secretSync: {enabled: true}
+  readSecretsOnlyFromSecretsNamespace: true
+```
+
+The Cilium operator then copies the Secrets this chart references into
+`cilium-secrets` and serves them to Envoy by reference, so the Cilium agent
+needs no cluster-wide Secret read. A cluster upgraded with
+`upgradeCompatibility` at 1.16 or below runs the legacy mode instead, without
+sync; there, create the Secrets directly in `cilium-secrets` and point
+`secretInjection` at that namespace.
+
+If you run Hubble, redact the injected headers. Cilium logs a header mismatch
+in its L7 access log, and that log carries the expected value:
+
+```yaml
+hubble:
+  redact:
+    enabled: true
+    http:
+      userInfo: true
+      headers:
+        deny: [Authorization, Proxy-Authorization]
+```
+
+`network.mode: kubernetes` and `none` cannot inject: plain NetworkPolicy has no
+L7 proxy and no TLS interception.
 
 ## Network policy
 

@@ -65,7 +65,9 @@ session unless asked.
   contents and anything under `/var/run/claude` as secrets when reading output.
 - Egress policy needs Cilium: on kind, delete the `kindnet` DaemonSet, install the
   Cilium chart with `ipam.mode=kubernetes` and one operator replica, then restart
-  every Deployment so Pods become Cilium endpoints. Verify with a throwaway pod
+  every Deployment so Pods become Cilium endpoints. Secret injection (spec section 9)
+  also needs the SDS policy-secret defaults (`tls.secretSync.enabled=true`) and,
+  with Hubble, `hubble.redact` for the injected headers. Verify with a throwaway pod
   carrying the runner selector labels (`app.kubernetes.io/name=runner`,
   `app.kubernetes.io/instance=<release>`) and `curl`; Hubble (`hubble observe -n
   <ns> --verdict DROPPED` inside the agent) shows drops. `cilium-dbg fqdn cache list`
