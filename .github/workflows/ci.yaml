@@ -125,3 +125,9 @@ jobs:
         run: |
           kubectl -n shock-e2e logs -l app.kubernetes.io/name=session-controller --tail=500 || true
           kubectl -n shock-e2e get events --sort-by=.lastTimestamp || true
+      - name: Kata logs on failure
+        if: failure() && matrix.runtime_class == 'kata'
+        run: |
+          sudo dmesg | grep -iE 'kvm|vhost|vsock' | tail -50 || true
+          docker exec shock-e2e-control-plane ls -l /dev/kvm /dev/vhost-vsock /dev/vhost-net || true
+          docker exec shock-e2e-control-plane journalctl -u containerd --no-pager | grep -iE 'kata|qemu|vmconsole|agent' | tail -600 || true

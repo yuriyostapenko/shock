@@ -62,6 +62,16 @@ for node in $("$kind" get nodes --name "$cluster"); do
   dir="$(fetch "$arch")"
   docker exec "$node" rm -rf /opt/kata
   docker cp "${dir}/opt/kata" "${node}:/opt/kata"
+  # Debug output (guest console, agent and runtime logs) lands in containerd's
+  # journal in the node, where a failing e2e run is diagnosed.
+  docker exec -i "$node" bash -c 'd=/opt/kata/share/defaults/kata-containers/runtime-rs/config.d && mkdir -p "$d" && cat > "$d/90-e2e-debug.toml"' <<'TOML'
+[hypervisor.qemu]
+enable_debug = true
+[agent.kata]
+enable_debug = true
+[runtime]
+enable_debug = true
+TOML
   docker exec -i "$node" bash -s <<'EOF'
 set -euo pipefail
 # runtime-rs joins the Pod's systemd cgroup over the system D-Bus, which
