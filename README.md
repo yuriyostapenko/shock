@@ -101,6 +101,8 @@ Optional, recommended:
   only and `none` renders no policy.
 - Prometheus Operator, for the default `monitoring.enabled: true`: PodMonitor
   and alert rules. Set it to `false` on clusters without the CRDs.
+- gVisor, for kernel isolation of runner Pods: install it on the nodes, create
+  a RuntimeClass and set `runner.runtimeClassName` (chart README, Images).
 
 ## Repository
 
@@ -131,6 +133,7 @@ make lint             # golangci-lint
 make helm-lint chart-golden
 make envtest          # downloads kube-apiserver/etcd for ENVTEST_K8S, runs test/envtest
 make e2e-kind         # creates kind cluster, installs agent-sandbox, runs test/e2e
+make e2e-kind E2E_RUNTIME_CLASS=gvisor   # same, runner Pods on gVisor (hack/kind-gvisor.sh)
 make image IMAGE=ghcr.io/you/shock:dev
 bin/shock version   # git tag or pseudo-version, commit, commit time, Go version
 ```
@@ -153,7 +156,8 @@ name and in the release notes; `make bump-claude` moves the pin locally.
 ## Validation
 
 Unit, chart golden, envtest and kind e2e suites run in CI on Kubernetes 1.35
-and 1.37 against agent-sandbox v1.0.2. The full lifecycle was also exercised
+and 1.37 against agent-sandbox v1.0.2; the e2e suite also runs on 1.37 with
+runner Pods on gVisor. The full lifecycle was also exercised
 live against a Claude self-hosted environment; the spec's section 13 holds the
 verification record.
 

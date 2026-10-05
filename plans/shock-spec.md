@@ -247,7 +247,7 @@ sessionController:
 runner:
   image: {repository: "", tag: ""}   # required; contract in README
   baseDir: /home/runner/workspace   # --base-dir; at or below storage.mountPath
-  runtimeClassName: ""          # e.g. kata / gvisor; empty = runc
+  runtimeClassName: ""          # an existing RuntimeClass, e.g. gvisor; empty = node default
   terminationGracePeriodSeconds: 120   # ≥ effective SIGKILL floor (75 s; 105 s with push-outcome)
   flags:
     releaseIdleSessionMin: 30
@@ -624,6 +624,12 @@ process only. `terminationGracePeriodSeconds` per values ([section 4](#4-deliver
 floor is 75 s at defaults and higher with push-outcome enabled. `securityContext`: non-root,
 no privilege escalation, seccomp RuntimeDefault; `runtimeClassName` from values.
 
+Sandboxed runtimes: `runner.runtimeClassName` names a RuntimeClass the cluster admin created; the
+chart is namespaced and never renders one, as with agent-sandbox. gVisor (`runsc`) is the tested
+sandbox: the e2e suite runs in full with every runner Pod under it (section 12). It applies to the
+runner Pod only. The experimental `images/runner-docker` image does not start rootless Docker under
+gVisor; `hostUsers: false` together with gVisor is untested.
+
 ## 9. Registry credentials (npm / NuGet / Docker)
 
 Two supported patterns, both chart-level, both documented in README:
@@ -754,6 +760,10 @@ documented manual run against a real beta environment):
 - **A `runner.podTemplate` that removes an anchor fails loudly**: renaming the `runner` container
   makes the hook exit 2 rather than create a broken Sandbox.
 - `helm upgrade` with zero sandboxes awake is a no-op for sleeping sessions.
+- **Runtime isolation**: with `E2E_RUNTIME_CLASS=gvisor` every install sets
+  `runner.runtimeClassName`, so the whole suite runs on gVisor; the runner Pod carries the class
+  and the fake runner's kernel release names gVisor. Without it the Pod has no class and the
+  kernel is the host's, so the check cannot pass by accident.
 - **Active-session cap**: with `maxActiveSessions: 1` and one session pending or running, a
   second session's hook exits 1 naming the counts and creates no Sandbox, PVC or Secret;
   redelivery of the first session's order exits 0; once the first session sleeps, the same
@@ -900,3 +910,21 @@ touching sleeping Sandboxes. The session controller uses the `events.k8s.io` rec
     orchestrator request moved to 100m / 256Mi and the controller to 50m / 128Mi, memory limits
     unchanged, no CPU limits. The e2e values and the kind live example override the runner block
     because a kind node cannot schedule 2 CPU / 4Gi requests.
+11. **gVisor isolation** (2026-10-05): gVisor `release-20260928.0`. Its release tarball
+    (`gvisor.tar.bz2`) now ships `runsc`, `containerd-shim-runsc-v1` and a `gvisor-bin/` directory
+    of sidecars that `runsc` expects next to itself; `hack/kind-gvisor.sh` installs all three into
+    each kind node, pins the tarball's sha512, adds the `runsc` handler (containerd config v2 on
+    kindest/node v1.37.0, v3 handled) with `systemd-cgroup` to match kind's cgroup driver, and
+    applies the `gvisor` RuntimeClass. The CI matrix runs the suite once with it (k8s 1.37). Under
+    `runsc` a non-root container reports `uname -r` as `4.19.0-gvisor`, the marker the e2e asserts.
+    Run directly with Docker and the official `runsc`, the default runner image's `claude`, git,
+    mise and uv start under gVisor. The `runner-docker` image's rootless Docker does not:
+    rootlesskit's detached netns fails (bind-mounting `/proc/self/ns/net` is refused), and with that
+    disabled `dockerd-rootless.sh` fails its unconditional `sysctl -w net.ipv4.ip_forward=1`.
+    On kind v1.37.0 the full suite passes on runc (the new runtime test's negative case) and with
+    `E2E_RUNTIME_CLASS=test-handler`, kind's built-in second runc handler, so the class reaches
+    every runner Pod through chart, hook and Sandbox. The gVisor leg itself cannot run in a
+    container without CAP_SYS_RESOURCE: the gVisor shim hard-codes `oom_score_adj` -999, ignoring
+    containerd's `restrict_oom_score_adj`. On GitHub's ubuntu-latest runners it passes the full
+    suite on kind v1.37.0 in the same time as runc (CI run 104, 7 min). Not verified: Cilium
+    egress policy on gVisor Pods and `hostUsers: false` on gVisor.

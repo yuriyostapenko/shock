@@ -46,6 +46,8 @@ var (
 	repoRoot   string
 	// hookExtraEnv is appended to the hook's environment by spawn.
 	hookExtraEnv []string
+	// runtimeClass is E2E_RUNTIME_CLASS: every helm install sets it on the runner.
+	runtimeClass string
 )
 
 func TestMain(m *testing.M) {
@@ -53,6 +55,7 @@ func TestMain(m *testing.M) {
 	if ns == "" {
 		ns = "shock-e2e"
 	}
+	runtimeClass = os.Getenv("E2E_RUNTIME_CLASS")
 	shockBin = os.Getenv("SHOCK_BIN")
 	if shockBin == "" {
 		fmt.Fprintln(os.Stderr, "SHOCK_BIN is required (path to the shock binary)")
@@ -84,8 +87,12 @@ func run(t *testing.T, name string, args ...string) string {
 
 func helmInstall(t *testing.T, extra ...string) {
 	t.Helper()
-	args := append([]string{"upgrade", "--install", release, "charts/shock", "-n", ns, "--create-namespace",
-		"-f", "test/e2e/values.yaml", "--wait", "--timeout", "3m"}, extra...)
+	args := []string{"upgrade", "--install", release, "charts/shock", "-n", ns, "--create-namespace",
+		"-f", "test/e2e/values.yaml", "--wait", "--timeout", "3m"}
+	if runtimeClass != "" {
+		args = append(args, "--set", "runner.runtimeClassName="+runtimeClass)
+	}
+	args = append(args, extra...)
 	run(t, "helm", args...)
 }
 
@@ -343,7 +350,7 @@ func readMarks(t *testing.T, sandboxName string) string {
 			SecurityContext: &corev1.PodSecurityContext{RunAsUser: &uid, RunAsGroup: &uid, FSGroup: &uid, RunAsNonRoot: &nonRoot,
 				SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
 			Containers: []corev1.Container{{Name: "r", Image: "docker.io/library/busybox:1.38",
-				Command:      []string{"sh", "-c", "cat /workspace/marks/log; echo; cat /workspace/marks/last-order"},
+				Command:      []string{"sh", "-c", "cat /workspace/marks/log; echo; cat /workspace/marks/last-order; cat /workspace/marks/kernel"},
 				VolumeMounts: []corev1.VolumeMount{{Name: "w", MountPath: "/workspace"}}}},
 			Volumes: []corev1.Volume{{Name: "w", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: naming.PVCName(sandboxName)}}}},
 		},
@@ -1004,5 +1011,25 @@ func TestI_IdleSessionCap(t *testing.T) {
 	})
 	if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: naming.PVCName(newest.name)}, &corev1.PersistentVolumeClaim{}); err != nil {
 		t.Fatalf("PVC of the surviving session: %v", err)
+	}
+}
+
+// TestJ_RuntimeIsolation: the runner Pod carries E2E_RUNTIME_CLASS and, for
+// gvisor, the fake runner saw gVisor's kernel; without one it saw the host's.
+func TestJ_RuntimeIsolation(t *testing.T) {
+	session := "session_e2e_runtime"
+	mustSpawn(t, order{id: "rt-1", session: session, attempt: 1, sleep: 2, exit: 0})
+	pod := waitObserved(t, session, "rt-1", wakeBudget)
+	got := ""
+	if pod.Spec.RuntimeClassName != nil {
+		got = *pod.Spec.RuntimeClassName
+	}
+	if got != runtimeClass {
+		t.Errorf("runner pod runtimeClassName = %q, want %q", got, runtimeClass)
+	}
+	waitAsleep(t, session, sleepBudget)
+	marks := readMarks(t, naming.SandboxName(release, session))
+	if gvisor := strings.Contains(marks, "gvisor"); gvisor != (runtimeClass == "gvisor") {
+		t.Fatalf("runtime class %q, but the runner's kernel release says gvisor=%v:\n%s", runtimeClass, gvisor, marks)
 	}
 }

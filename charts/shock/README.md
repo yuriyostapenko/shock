@@ -113,6 +113,18 @@ idmapped mounts), set `runner.hostUsers: false` together with
 the container is then an unprivileged host user, `apt-get install` works, and
 Pod Security Standards waive the non-root requirement for such Pods.
 
+**gVisor isolation.** Set `runner.runtimeClassName` to a RuntimeClass whose
+handler is gVisor's `runsc`, and every runner Pod runs on gVisor's user-space
+kernel instead of sharing the node's. The chart is namespaced and creates no
+RuntimeClass: a cluster admin installs gVisor on the nodes and creates the class
+(GKE Sandbox provides one named `gvisor`), ideally with `overhead.podFixed` set
+from measurement so the scheduler counts the sandbox's own memory. Only runner
+Pods change; the orchestrator and session controller keep the default runtime.
+CI runs the full e2e suite with runner Pods on gVisor, and the default image's
+tools start under it. The experimental `runner-docker` image does not: its
+rootless Docker fails under gVisor. Combining gVisor with `runner.hostUsers:
+false` is untested.
+
 **Bring your own runner image** with `FROM ghcr.io/yuriyostapenko/shock-runner:X.Y.Z`
 and add toolchains as root before switching back to `USER 1000`. Whatever the
 image, the contract is: `claude` at 2.1.224 or later, pinned; `git >= 2.32`; a
@@ -193,6 +205,7 @@ types and enums. The load-bearing ones:
 | --- | --- | --- |
 | `environment.existingSecret` | `""` | Secret with key `environment-secret`. Required unless `secretValue` is set. |
 | `orchestrator.image.tag`, `runner.image.tag` | `""` | Fall back to the chart's `appVersion`. The `digest` fields pin the images; the release sets them. |
+| `runner.runtimeClassName` | `""` | An existing RuntimeClass for runner Pods, e.g. `gvisor` (see [gVisor isolation](#images)). Empty = the node default. |
 | `runner.hostUsers` | unset | `false` runs the runner Pod in a user namespace so root inside the container can use `apt`. |
 | `runner.flags.useAnthropicGitProxy` | `true` | Git goes through `api.anthropic.com` with the session creator's GitHub connection; the runner holds no git credentials. Set `false` when supplying credentials yourself. |
 | `orchestrator.expectedSpawnSeconds` | `180` | Server-side spawn lease, shared by all replicas. Must exceed `hookTimeout + 5` (rendering fails otherwise). Includes the initial suspension round-trip. |

@@ -7,12 +7,16 @@ KIND          ?= kind
 KIND_CLUSTER  ?= shock-e2e
 KIND_NODE_IMAGE ?= kindest/node:v1.35.8
 AGENT_SANDBOX_VERSION ?= v1.0.2
+# E2E_RUNTIME_CLASS=gvisor installs gVisor into the kind node and runs the
+# runner Pods under it; hack/kind-gvisor.sh pins each release's checksums.
+E2E_RUNTIME_CLASS ?=
+GVISOR_VERSION ?= 20260928.0
 IMAGE         ?= shock:dev
 CHANNEL       ?= stable
 RUNNER_IMAGE  ?= shock-runner:dev
 CHART         := charts/shock
 E2E_NAMESPACE ?= shock-e2e
-export AGENT_SANDBOX_VERSION E2E_NAMESPACE
+export AGENT_SANDBOX_VERSION E2E_NAMESPACE E2E_RUNTIME_CLASS
 
 .PHONY: all build fmt vet lint test envtest helm-lint helm-template chart-golden trusted-domains bump-claude e2e-kind e2e-setup e2e e2e-teardown image image-runner clean
 
@@ -65,6 +69,9 @@ image-runner:
 e2e-setup:
 	mkdir -p bin
 	$(KIND) get clusters | grep -qx $(KIND_CLUSTER) || $(KIND) create cluster --name $(KIND_CLUSTER) --image $(KIND_NODE_IMAGE) --wait 120s
+ifeq ($(E2E_RUNTIME_CLASS),gvisor)
+	KIND=$(KIND) ./hack/kind-gvisor.sh $(KIND_CLUSTER) $(GVISOR_VERSION)
+endif
 	curl --retry 8 --retry-delay 3 --retry-all-errors -fsSL -o bin/agent-sandbox-$(AGENT_SANDBOX_VERSION).yaml \
 	  https://github.com/kubernetes-sigs/agent-sandbox/releases/download/$(AGENT_SANDBOX_VERSION)/sandbox.yaml
 	kubectl apply -f bin/agent-sandbox-$(AGENT_SANDBOX_VERSION).yaml
