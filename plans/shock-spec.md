@@ -923,7 +923,8 @@ touching sleeping Sandboxes. The session controller uses the `events.k8s.io` rec
     disabled `dockerd-rootless.sh` fails its unconditional `sysctl -w net.ipv4.ip_forward=1`.
     On kind v1.37.0 the full suite passes on runc (the new runtime test's negative case) and with
     `E2E_RUNTIME_CLASS=test-handler`, kind's built-in second runc handler, so the class reaches
-    every runner Pod through chart, hook and Sandbox. Not verified here: the gVisor e2e leg itself (the authoring sandbox lacks CAP_SYS_RESOURCE, and
-    the gVisor shim hard-codes `oom_score_adj` -999, ignoring containerd's
-    `restrict_oom_score_adj`; first evidence is the CI leg), Cilium egress policy on gVisor Pods,
-    and `hostUsers: false` on gVisor.
+    every runner Pod through chart, hook and Sandbox. The gVisor leg itself cannot run in a
+    container without CAP_SYS_RESOURCE: the gVisor shim hard-codes `oom_score_adj` -999, ignoring
+    containerd's `restrict_oom_score_adj`. On GitHub's ubuntu-latest runners it passes the full
+    suite on kind v1.37.0 in the same time as runc (CI run 104, 7 min). Not verified: Cilium
+    egress policy on gVisor Pods and `hostUsers: false` on gVisor.
