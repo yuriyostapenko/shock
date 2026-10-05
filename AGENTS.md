@@ -9,8 +9,9 @@
 - Follow explicit user instructions. Otherwise, treat the spec as the implementation
   contract; resolve contradictions explicitly and update related sections together.
 - Check the spec's verification items against pinned upstream releases before relying
-  on beta protocol behavior. Record dependency versions and relevant evidence in the
-  verification record at the end of the spec's section 13.
+  on beta protocol behavior. The verification record at the end of the spec's section 13
+  states the upstream facts SHOCK relies on, not versions: record a bump's versions and
+  evidence in its pull request, and update the record only when a fact changes.
 
 ## Scope and structure
 

@@ -86,13 +86,13 @@ jobs:
       fail-fast: false
       matrix:
         # The tested range. Add a version only after its conformance run passes.
-        agent_sandbox: [v1.0.2]
+        agent_sandbox: [v1.0.5]
         # Oldest and newest allowed minors for Chart.yaml kubeVersion.
         kube: [v1.35.8, v1.37.0]
         # Empty = runc. gVisor runs the whole suite once, on the newest minor.
         runtime_class: [""]
         include:
-          - {agent_sandbox: v1.0.2, kube: v1.37.0, runtime_class: gvisor}
+          - {agent_sandbox: v1.0.5, kube: v1.37.0, runtime_class: gvisor}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

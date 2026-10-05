@@ -6,7 +6,7 @@ ENVTEST_K8S   ?= 1.35.x
 KIND          ?= kind
 KIND_CLUSTER  ?= shock-e2e
 KIND_NODE_IMAGE ?= kindest/node:v1.35.8
-AGENT_SANDBOX_VERSION ?= v1.0.2
+AGENT_SANDBOX_VERSION ?= v1.0.5
 # E2E_RUNTIME_CLASS=gvisor installs gVisor into the kind node and runs the
 # runner Pods under it; hack/kind-gvisor.sh pins each release's checksums.
 E2E_RUNTIME_CLASS ?=

@@ -814,16 +814,22 @@ cascade and upstream reconciliation tests require kind with the relevant control
 - https://github.com/kubernetes-sigs/agent-sandbox (v1beta1 API, `controllers/sandbox_controller.go`)
 - https://agent-sandbox.sigs.k8s.io/docs/ (Sandbox lifecycle, API reference)
 
-### Verification record (2026-09-14, first implementation)
+### Verification record
 
-Pinned: agent-sandbox **v1.0.2** (`sigs.k8s.io/agent-sandbox`, `k8s.io/*` v0.37.0,
-controller-runtime v0.25.1), Go 1.27, Helm 4.2.3 locally (CI pins v4.3.0), kind 0.33 with `kindest/node:v1.35.0` locally (CI matrix v1.35.8 and v1.37.0),
-envtest 1.35.0 and 1.37.0, Claude Code 2.1.270 as the image build default
-(native binary from downloads.claude.ai per the deploy doc's recipe, fetched in a `debian:trixie-slim` stage and
-placed on `gcr.io/distroless/base-debian13:nonroot`; the doc's own example uses bookworm-slim and its version
-floor is 2.1.224). The runtime has no shell, so `/hooks/spawn-runner` is a symlink to `shock`, which dispatches
-on its invocation name; the orchestrator found and accepted the symlinked hook in local runs, and a live
-environment run still has to confirm hook execution end to end.
+Started 2026-09-14 with the first implementation. The record states what SHOCK relies on, not the
+versions it was checked against: the pins live in `go.mod` (agent-sandbox, `k8s.io/*`,
+controller-runtime, Go), `charts/shock/Chart.yaml` (`kubeVersion` and the Claude Code annotation),
+the image Dockerfiles, the e2e matrix in `.github/workflows/ci.yaml` and the `Makefile` (kind node,
+gVisor). A dependency bump re-checks items 3, 6 and 7 and the upstream behaviors below against the
+new release and records the evidence in its pull request; this record changes only when one of
+those facts does.
+
+The images carry the native Claude Code binary from downloads.claude.ai per the deploy doc's
+recipe, fetched in a `debian:trixie-slim` stage and placed on `gcr.io/distroless/base-debian13:nonroot`
+(the doc's own example uses bookworm-slim). The runtime has no shell, so `/hooks/spawn-runner` is a
+symlink to `shock`, which dispatches on its invocation name; the orchestrator found and accepted the
+symlinked hook in local runs, and a live environment run still has to confirm hook execution end to
+end.
 
 1. **Hook env vars** (configuration doc, "The spawn-runner hook"): `CLAUDE_RUNNER_WORK_ORDER_FILE`
    (temp file, deleted after exit), `CLAUDE_RUNNER_ORDER_ID` (idempotency key, safe for
@@ -857,28 +863,32 @@ environment run still has to confirm hook execution end to end.
    `registry.npmjs.org`, `http-intake.logs.us5.datadoghq.com`, `browser-intake-us5-datadoghq.com`.
    Not needed: `statsig.anthropic.com`, `*.sentry.io`, `claude.ai`, `platform.claude.com`. The chart
    default is the minimum (`api.anthropic.com`, `github.com`); extend `network.allowedFQDNs`.
-3. **Condition and reason strings** (v1.0.2 `api/v1beta1/sandbox_types.go`): `Suspended` with
-   reasons `PodTerminated` (True), `PodTerminating` (False, replaces deprecated `PodNotTerminated`),
+3. **Condition and reason strings** (`api/v1beta1/sandbox_types.go` of the pinned release):
+   `Suspended` with reasons `PodTerminated` (True), `PodTerminating` (False, replaces deprecated `PodNotTerminated`),
    `PodNotOwned`, `NotSuspended` (False while Running), `PodStateUnknown` (Unknown); `Ready` with
    `DependenciesReady`, `DependenciesNotReady`, `MultiplePods`, `SandboxSuspended`, `PodSucceeded`,
-   `PodFailed`, `SandboxExpired`, `ReconcilerError`; `Finished` with `PodSucceeded`/`PodFailed`,
-   present only while a terminal owned pod exists; `PodScheduled` mirrored from the pod. The
+   `PodFailed`, `SandboxExpired`, `ReconcilerError`, `InvalidConfiguration` (a child create failed
+   apiserver validation, for instance a headless Service name over 63 characters, and is not
+   requeued; the Service takes the Sandbox name, which `internal/naming` caps at 63); `Finished`
+   with `PodSucceeded`/`PodFailed`, present only while a terminal owned pod exists; `PodScheduled` mirrored from the pod. The
    controller imports the constants; the e2e conformance test asserts the literals.
 4. **Work-order delivery**: file flag `--environment-secret-file <path>` or
    `SELF_HOSTED_RUNNER_ENVIRONMENT_SECRET` (value). The chart mounts the Secret and uses the flag.
 5. **claude flags**: `claude self-hosted-runner --help` and `... orchestrator --help` were run in
-   the built image (Claude Code 2.1.270, native binary). Every flag the chart renders exists under the spelling in
+   the built image (native binary). Every flag the chart renders exists under the spelling in
    section 8: runner `--capacity`, `--base-dir`, `--environment-secret-file`, `--lock-to-account`,
    `--release-idle-session-min`, `--kill-session-after-min`, `--exit-if-unused-min`,
    `--push-outcome-on-release`, `--health-port`, `--exec-path`; orchestrator `--hooks-dir`,
    `--environment-secret-file`, `--expected-spawn-seconds`, `--hook-timeout`, `--hook-concurrency`,
-   `--health-port` (`--min-idle` exists upstream; the chart stopped rendering it on 2026-09-15). `--kill-session-after-min` releases rather than terminates on ≥ 2.1.260.
-6. **kubeVersion**: v1.0.2 pins `k8s.io/*` v0.37.0 → `kubeVersion: ">=1.35.0-0"`.
-7. **Idle-suspend**: v1.0.2 `SandboxSpec` has no auto-suspension field; nothing to opt out of.
-   Re-check on every bump.
+   `--health-port` (`--min-idle` exists upstream; the chart stopped rendering it on 2026-09-15).
+   `--kill-session-after-min` releases the session rather than terminating it.
+6. **kubeVersion**: derived per [section 4](#4-deliverable-a--helm-chart) from the `k8s.io/*` minor in the
+   pinned release's `go.mod`; `Chart.yaml` carries the result next to its derivation.
+7. **Idle-suspend**: the pinned release's `SandboxSpec` has no auto-suspension field; nothing to
+   opt out of. Re-check on every bump.
 
-Upstream behaviors relied on, re-read in v1.0.2 `controllers/sandbox_controller.go`: a terminal
-pod under `Running` is returned as-is (no recreate); `Suspended` deletes any owned pod regardless
+Upstream behaviors relied on, re-read in the pinned release's `controllers/sandbox_controller.go`
+on every bump: a terminal pod under `Running` is returned as-is (no recreate); `Suspended` deletes any owned pod regardless
 of phase and reports `PodTerminating` until it is gone; resume recreates the pod from `podTemplate`
 and mounts `<claimTemplate>-<sandboxName>`; two owned pods → `Ready=False/MultiplePods` and the
 controller refuses to act; conditions carry `ObservedGeneration: sandbox.Generation`;
@@ -910,21 +920,21 @@ touching sleeping Sandboxes. The session controller uses the `events.k8s.io` rec
     orchestrator request moved to 100m / 256Mi and the controller to 50m / 128Mi, memory limits
     unchanged, no CPU limits. The e2e values and the kind live example override the runner block
     because a kind node cannot schedule 2 CPU / 4Gi requests.
-11. **gVisor isolation** (2026-10-05): gVisor `release-20260928.0`. Its release tarball
+11. **gVisor isolation** (2026-10-05): gVisor at the `Makefile`'s `GVISOR_VERSION`. Its release tarball
     (`gvisor.tar.bz2`) now ships `runsc`, `containerd-shim-runsc-v1` and a `gvisor-bin/` directory
     of sidecars that `runsc` expects next to itself; `hack/kind-gvisor.sh` installs all three into
     each kind node, pins the tarball's sha512, adds the `runsc` handler (containerd config v2 on
-    kindest/node v1.37.0, v3 handled) with `systemd-cgroup` to match kind's cgroup driver, and
-    applies the `gvisor` RuntimeClass. The CI matrix runs the suite once with it (k8s 1.37). Under
-    `runsc` a non-root container reports `uname -r` as `4.19.0-gvisor`, the marker the e2e asserts.
+    the kind node image, v3 handled) with `systemd-cgroup` to match kind's cgroup driver, and
+    applies the `gvisor` RuntimeClass. The CI matrix runs the suite once with it, on the newest Kubernetes
+    minor. Under `runsc` a non-root container's `uname -r` contains `gvisor`, the marker the e2e asserts.
     Run directly with Docker and the official `runsc`, the default runner image's `claude`, git,
     mise and uv start under gVisor. The `runner-docker` image's rootless Docker does not:
     rootlesskit's detached netns fails (bind-mounting `/proc/self/ns/net` is refused), and with that
     disabled `dockerd-rootless.sh` fails its unconditional `sysctl -w net.ipv4.ip_forward=1`.
-    On kind v1.37.0 the full suite passes on runc (the new runtime test's negative case) and with
+    On kind the full suite passes on runc (the new runtime test's negative case) and with
     `E2E_RUNTIME_CLASS=test-handler`, kind's built-in second runc handler, so the class reaches
     every runner Pod through chart, hook and Sandbox. The gVisor leg itself cannot run in a
     container without CAP_SYS_RESOURCE: the gVisor shim hard-codes `oom_score_adj` -999, ignoring
     containerd's `restrict_oom_score_adj`. On GitHub's ubuntu-latest runners it passes the full
-    suite on kind v1.37.0 in the same time as runc (CI run 104, 7 min). Not verified: Cilium
+    suite in the same time as runc (CI run 104, 7 min). Not verified: Cilium
     egress policy on gVisor Pods and `hostUsers: false` on gVisor.
