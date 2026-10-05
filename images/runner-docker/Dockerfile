@@ -12,6 +12,8 @@
 #   a /dev/net/tun device (slirp4netns)
 #   a volume owned by uid 1000 at /home/runner/.local/share/docker
 # That is the privileged Pod Security Standards level.
+# It does not work under gVisor (runner.runtimeClassName): rootless Docker fails
+# to set up its network namespace there (spec section 13, item 11).
 
 ARG BASE_IMAGE=shock-runner:dev
 ARG DOCKER_VERSION=29.8.0

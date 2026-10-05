@@ -77,7 +77,9 @@ runner:
   # The runner's --base-dir (repository checkouts). Must be storage.mountPath
   # or below it, and identical on every runner: paths are recorded absolute.
   baseDir: /home/runner/workspace
-  runtimeClassName: ""    # e.g. kata, gvisor; empty = runc
+  # An existing RuntimeClass, e.g. gvisor (chart README, "gVisor isolation");
+  # the chart creates none. Empty = the node's default runtime.
+  runtimeClassName: ""
   # Runner SIGKILL floor: 75 s at defaults, 105 s with push-outcome.
   terminationGracePeriodSeconds: 120
   healthPort: 8080

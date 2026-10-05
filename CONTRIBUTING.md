@@ -56,7 +56,11 @@ not the toolchain.
 
 `make e2e-kind` creates a kind cluster named `shock-e2e`, installs agent-sandbox
 from the upstream release manifest, builds the controller image and runs
-`test/e2e`. `make e2e-teardown` removes the cluster. The same cluster serves as
+`test/e2e`. `E2E_RUNTIME_CLASS=gvisor` first installs gVisor into the node
+(`hack/kind-gvisor.sh`, pinned by `GVISOR_VERSION` and the checksums in the
+script) and runs every runner Pod under it; a reused cluster gets it on rerun,
+and runs without the variable keep runc. CI runs it on the newest Kubernetes
+minor. `make e2e-teardown` removes the cluster. The same cluster serves as
 a live test bed with the real images and an environment key;
 `hack/live-values.example.yaml` and the "Full-cycle work on a live cluster"
 section of `AGENTS.md` describe the steps.

@@ -37,6 +37,7 @@ runner:
       mkdir -p /workspace/marks
       echo "$(hostname) $(cat "$wo")" >> /workspace/marks/log
       echo "$ORDER" > /workspace/marks/last-order
+      uname -r > /workspace/marks/kernel
       i=0; while [ "$i" -lt "${SLEEP:-10}" ]; do sleep 1; i=$((i+1)); done
       exit "${EXIT:-0}"
   securityContext:
