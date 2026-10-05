@@ -941,7 +941,10 @@ touching sleeping Sandboxes. The session controller uses the `events.k8s.io` rec
     with that overhead. The guest kernel reports `uname -r` as `6.18.35`, not distinctive, so the
     e2e compares the runner's kernel release against its Node's `kernelVersion` for every
     sandboxed class. A kind node sees only host device nodes present at its creation; CI loads
-    `kvm`, `vhost_vsock` and `vhost_net` first. Upstream runs its `qemu-runtime-rs` Kubernetes
+    `kvm`, `vhost_vsock` and `vhost_net` first. runtime-rs places the VMM in the Pod's systemd
+    cgroup over the system D-Bus, and kindest/node v1.37.0 (Debian trixie) runs systemd without a
+    D-Bus daemon: the first CI run failed every Kata sandbox with "add runtime to sandbox cgroup:
+    systemd dbus error ... No such file or directory", so the script installs and starts `dbus`. Upstream runs its `qemu-runtime-rs` Kubernetes
     tests on free `ubuntu-24.04` runners (kubeadm, not kind), the basis for an amd64 CI job.
     Not runnable in the authoring sandbox (a Firecracker VM without `/dev/kvm`); CI evidence
     pending.

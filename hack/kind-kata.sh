@@ -64,6 +64,13 @@ for node in $("$kind" get nodes --name "$cluster"); do
   docker cp "${dir}/opt/kata" "${node}:/opt/kata"
   docker exec -i "$node" bash -s <<'EOF'
 set -euo pipefail
+# runtime-rs joins the Pod's systemd cgroup over the system D-Bus, which
+# kind's node image does not ship.
+if ! systemctl is-active -q dbus; then
+  apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dbus >/dev/null
+  systemctl start dbus
+fi
 cfg=/etc/containerd/config.toml
 if ! grep -q 'runtimes.kata-qemu-runtime-rs]' "$cfg"; then
   case "$(sed -n 's/^version *= *//p' "$cfg")" in
