@@ -950,5 +950,6 @@ touching sleeping Sandboxes. The session controller uses the `events.k8s.io` rec
     sized from the Pod's limit) died in early boot with "kvm run failed Bad address", seen once
     Kata debug logging reached containerd's journal. The script remounts it at 50% of RAM. Upstream runs its `qemu-runtime-rs` Kubernetes
     tests on free `ubuntu-24.04` runners (kubeadm, not kind), the basis for an amd64 CI job.
-    Not runnable in the authoring sandbox (a Firecracker VM without `/dev/kvm`); CI evidence
-    pending.
+    Not runnable in the authoring sandbox (a Firecracker VM without `/dev/kvm`). On GitHub's
+    ubuntu-latest runners (AMD, nested virtualization) the full suite passes on kind v1.37.0 with
+    every runner Pod in a Kata VM (CI run 113, 7m49s against 7m15s on runc).
