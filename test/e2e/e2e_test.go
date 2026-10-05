@@ -1014,11 +1014,12 @@ func TestI_IdleSessionCap(t *testing.T) {
 	}
 }
 
-// TestJ_RuntimeIsolation: the runner Pod carries E2E_RUNTIME_CLASS and, for
-// gvisor, the fake runner saw gVisor's kernel; without one it saw the host's.
+// TestJ_RuntimeIsolation: the runner Pod carries E2E_RUNTIME_CLASS; under
+// gvisor or kata the fake runner saw a kernel other than its Node's, without a
+// class the Node's own.
 func TestJ_RuntimeIsolation(t *testing.T) {
 	session := "session_e2e_runtime"
-	mustSpawn(t, order{id: "rt-1", session: session, attempt: 1, sleep: 2, exit: 0})
+	mustSpawn(t, order{id: "rt-1", session: session, attempt: 1, sleep: 5, exit: 0})
 	pod := waitObserved(t, session, "rt-1", wakeBudget)
 	got := ""
 	if pod.Spec.RuntimeClassName != nil {
@@ -1027,9 +1028,35 @@ func TestJ_RuntimeIsolation(t *testing.T) {
 	if got != runtimeClass {
 		t.Errorf("runner pod runtimeClassName = %q, want %q", got, runtimeClass)
 	}
+	// Observed precedes scheduling; the Node is known once the Pod is bound.
+	node := &corev1.Node{}
+	waitFor(t, "runner pod bound to a node", wakeBudget, func() (bool, string) {
+		p := &corev1.Pod{}
+		if err := c.Get(context.Background(), client.ObjectKeyFromObject(&pod), p); err != nil {
+			return false, err.Error()
+		}
+		if p.Spec.NodeName == "" {
+			return false, string(p.Status.Phase)
+		}
+		return c.Get(context.Background(), types.NamespacedName{Name: p.Spec.NodeName}, node) == nil, p.Spec.NodeName
+	})
 	waitAsleep(t, session, sleepBudget)
-	marks := readMarks(t, naming.SandboxName(release, session))
-	if gvisor := strings.Contains(marks, "gvisor"); gvisor != (runtimeClass == "gvisor") {
-		t.Fatalf("runtime class %q, but the runner's kernel release says gvisor=%v:\n%s", runtimeClass, gvisor, marks)
+	marks := strings.Fields(readMarks(t, naming.SandboxName(release, session)))
+	if len(marks) == 0 {
+		t.Fatal("no marks from the runner")
+	}
+	kernel, hostKernel := marks[len(marks)-1], node.Status.NodeInfo.KernelVersion
+	switch runtimeClass {
+	case "gvisor", "kata":
+		if kernel == hostKernel {
+			t.Fatalf("runtime class %q, but the runner ran on the Node's kernel %s", runtimeClass, kernel)
+		}
+	case "":
+		if kernel != hostKernel {
+			t.Fatalf("no runtime class, but the runner's kernel %s is not the Node's %s", kernel, hostKernel)
+		}
+	}
+	if runtimeClass == "gvisor" && !strings.Contains(kernel, "gvisor") {
+		t.Fatalf("runtime class gvisor, but the runner's kernel release is %s", kernel)
 	}
 }
