@@ -18,8 +18,8 @@ Required:
 
 | Requirement | Notes |
 | --- | --- |
-| Kubernetes `>= 1.35` | Derived from agent-sandbox v1.0.2's `k8s.io/*` v0.37 pin minus two minors. Older clusters may work but are untested and unsupported. |
-| [agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) controller, tested range **v1.0.2** | Install from the upstream release manifests. This chart never renders its CRDs or controller. Until the CRD is served the session controller stays alive but not ready and the hook exits 1 (retryable). |
+| Kubernetes `>= 1.35` | Derived from agent-sandbox v1.0.5's `k8s.io/*` v0.37 pin minus two minors. Older clusters may work but are untested and unsupported. |
+| [agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) controller, tested range **v1.0.5** | Install from the upstream release manifests. This chart never renders its CRDs or controller. Until the CRD is served the session controller stays alive but not ready and the hook exits 1 (retryable). |
 | A Claude self-hosted environment | Create it on the Cloud environments admin page and store the environment key in a Secret (key `environment-secret`). |
 | Persistent storage for per-session PVCs | Default access mode `ReadWriteOncePod` (needs a CSI driver). Immutable per session after creation. |
 | The SHOCK image and a runner image | Both published by the release; see below. |
@@ -40,7 +40,7 @@ The released chart's `appVersion` is that same `X.Y.Z` and its default values
 pin the released image by digest, so the orchestrator image needs no values.
 
 ```sh
-kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.2/sandbox.yaml
+kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.5/sandbox.yaml
 kubectl create namespace claude-runners
 (umask 077 && cat > ./environment-secret)   # paste the environment key, Enter, Ctrl-D
 kubectl -n claude-runners create secret generic claude-environment --from-file=environment-secret=./environment-secret && rm ./environment-secret

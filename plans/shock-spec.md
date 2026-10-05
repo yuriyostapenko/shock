@@ -928,3 +928,14 @@ touching sleeping Sandboxes. The session controller uses the `events.k8s.io` rec
     containerd's `restrict_oom_score_adj`. On GitHub's ubuntu-latest runners it passes the full
     suite on kind v1.37.0 in the same time as runc (CI run 104, 7 min). Not verified: Cilium
     egress policy on gVisor Pods and `hostUsers: false` on gVisor.
+12. **agent-sandbox v1.0.5** (2026-10-05, Dependabot `kubernetes` group, PR #20): `go.mod` moves to
+    agent-sandbox v1.0.5, `k8s.io/*` v0.37.1 and controller-runtime v0.25.2; the e2e matrix and
+    `AGENT_SANDBOX_VERSION` move to v1.0.5, which replaces v1.0.2 as the tested range. Items 3, 6 and
+    7 and the relied-on behaviors above were re-checked by diffing the v1.0.2 and v1.0.5 module
+    sources. v1.0.5 still pins `k8s.io/*` v0.37, so `kubeVersion` stays `">=1.35.0-0"`.
+    `SandboxSpec` still has no idle-suspend field. The only new reason is `Ready=False/InvalidConfiguration`,
+    reported when a child create fails apiserver validation, for instance a headless Service name over
+    63 characters, and no longer requeued. The Service takes the Sandbox name, which `internal/naming`
+    caps at 63, and SHOCK reads `Ready` only for `MultiplePods`. The controller now also emits
+    `SandboxPodCreated`, `SandboxReady` and similar Events, requeues after 30s while the namespace
+    is terminating, and changes none of the behaviors listed above.

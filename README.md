@@ -87,7 +87,7 @@ operations document.
 ## Requirements
 
 - Kubernetes `>= 1.35` (derived from the pinned agent-sandbox release).
-- The agent-sandbox controller, tested range **v1.0.2**, installed from
+- The agent-sandbox controller, tested range **v1.0.5**, installed from
   upstream. SHOCK does not install or own its CRDs.
 - A Claude Code self-hosted environment and its environment key.
 - Storage for per-session PVCs; the default uses `ReadWriteOncePod`.
@@ -156,7 +156,7 @@ name and in the release notes; `make bump-claude` moves the pin locally.
 ## Validation
 
 Unit, chart golden, envtest and kind e2e suites run in CI on Kubernetes 1.35
-and 1.37 against agent-sandbox v1.0.2; the e2e suite also runs on 1.37 with
+and 1.37 against agent-sandbox v1.0.5; the e2e suite also runs on 1.37 with
 runner Pods on gVisor. The full lifecycle was also exercised
 live against a Claude self-hosted environment; the spec's section 13 holds the
 verification record.

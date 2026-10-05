@@ -21,8 +21,8 @@ go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.25
 ```
 
-Dependency pins live in `go.mod` (agent-sandbox v1.0.2, controller-runtime
-v0.25.1, k8s.io v0.37.0), in `Chart.yaml` (`kubeVersion`, derived from the
+Dependency pins live in `go.mod` (agent-sandbox v1.0.5, controller-runtime
+v0.25.2, k8s.io v0.37.1), in `Chart.yaml` (`kubeVersion`, derived from the
 agent-sandbox pin) and in the e2e matrix in `.github/workflows/ci.yaml`. Bump
 them together and re-derive `kubeVersion`.
 
