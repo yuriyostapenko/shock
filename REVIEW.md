@@ -29,8 +29,10 @@ them turns CI red when stale. Before merging, in the same pull request:
   version independently of `go.mod`;
 - run `make e2e-kind AGENT_SANDBOX_VERSION=vX.Y.Z`; a conformance failure blocks
   the bump;
-- record the versions and evidence in section 13 of
-  [plans/shock-spec.md](plans/shock-spec.md).
+- re-check items 3, 6 and 7 and the relied-on upstream behaviors in section 13 of
+  [plans/shock-spec.md](plans/shock-spec.md) against the new release, and put
+  the versions and evidence in the pull request; the spec changes only when one
+  of those facts does.
 
 Dependabot does not touch the Go toolchain (`go.mod`'s `go` directive and
 `ARG GO_VERSION` in the orchestrator image — the `go` job fails when those two

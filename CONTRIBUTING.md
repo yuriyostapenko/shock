@@ -2,7 +2,9 @@
 
 SHOCK implements [plans/shock-spec.md](plans/shock-spec.md). Architectural
 changes include the corresponding spec update; the spec's verification record
-(section 13) lists the upstream versions and evidence the implementation rests on.
+(section 13) states the upstream facts the implementation rests on, without
+pinning versions; the pins live in `go.mod`, `Chart.yaml`, the Dockerfiles, the
+CI matrix and the `Makefile`.
 
 ## Development workflow
 
