@@ -81,6 +81,9 @@ if ! systemctl is-active -q dbus; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends dbus >/dev/null
   systemctl start dbus
 fi
+# QEMU backs guest RAM with a shared file on /dev/shm (virtio-fs needs it);
+# Docker caps a container's /dev/shm at 64M, which faults any guest larger.
+mount -o remount,size=50% /dev/shm
 cfg=/etc/containerd/config.toml
 if ! grep -q 'runtimes.kata-qemu-runtime-rs]' "$cfg"; then
   case "$(sed -n 's/^version *= *//p' "$cfg")" in

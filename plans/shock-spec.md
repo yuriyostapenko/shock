@@ -944,7 +944,11 @@ touching sleeping Sandboxes. The session controller uses the `events.k8s.io` rec
     `kvm`, `vhost_vsock` and `vhost_net` first. runtime-rs places the VMM in the Pod's systemd
     cgroup over the system D-Bus, and kindest/node v1.37.0 (Debian trixie) runs systemd without a
     D-Bus daemon: the first CI run failed every Kata sandbox with "add runtime to sandbox cgroup:
-    systemd dbus error ... No such file or directory", so the script installs and starts `dbus`. Upstream runs its `qemu-runtime-rs` Kubernetes
+    systemd dbus error ... No such file or directory", so the script installs and starts `dbus`.
+    QEMU backs guest RAM with a shared file on `/dev/shm` (`memory-backend-file`, `share=on`, for
+    virtio-fs), and Docker gives the kind node a 64M `/dev/shm`: the next run's guests (`-m 160M`,
+    sized from the Pod's limit) died in early boot with "kvm run failed Bad address", seen once
+    Kata debug logging reached containerd's journal. The script remounts it at 50% of RAM. Upstream runs its `qemu-runtime-rs` Kubernetes
     tests on free `ubuntu-24.04` runners (kubeadm, not kind), the basis for an amd64 CI job.
     Not runnable in the authoring sandbox (a Firecracker VM without `/dev/kvm`); CI evidence
     pending.
