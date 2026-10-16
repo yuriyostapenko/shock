@@ -691,11 +691,11 @@ CI: `ct lint` + `helm template` golden tests; `golangci-lint` + `go test` (hook 
 fake client over the real `v1beta1` types); envtest for API concurrency semantics; kind e2e.
 
 The e2e suite must include **agent-sandbox conformance tests** that pin our behavioral
-assumptions. The set of agent-sandbox versions tested is the e2e job's build matrix and lives only
-there — CI installs each from upstream release manifests. That matrix is what "the tested range"
-means everywhere in this document; it is not published in the chart, since nothing at install or
-run time consumes it. An upstream change in reconciliation semantics must fail loudly before a
-version is added to the matrix:
+assumptions. The agent-sandbox version tested is the one `go.mod` pins; the Makefile reads it
+from there and CI installs that release from upstream manifests. That pin is what "the tested
+range" means everywhere in this document; it is not published in the chart, since nothing at
+install or run time consumes it. An upstream change in reconciliation semantics must fail loudly
+before the pin moves:
 (1) pod reaching Succeeded/Failed under `Running` is left alone and `Finished=True` appears;
 (2) patching `Suspended` deletes a terminal pod and yields `Suspended=True` with the PVC intact;
 (3) patching back to `Running` recreates the pod and remounts the same PVC (write a file, verify
@@ -818,7 +818,7 @@ cascade and upstream reconciliation tests require kind with the relevant control
 
 ### Verification record (2026-09-14, first implementation)
 
-Pinned: agent-sandbox **v1.0.2** (`sigs.k8s.io/agent-sandbox`, `k8s.io/*` v0.37.0,
+Pinned: agent-sandbox **v1.0.2**, v1.0.6 since 2026-10-16 (item 13) (`sigs.k8s.io/agent-sandbox`, `k8s.io/*` v0.37.0,
 controller-runtime v0.25.1), Go 1.27, Helm 4.2.3 locally (CI pins v4.3.0), kind 0.33 with `kindest/node:v1.35.0` locally (CI matrix v1.35.8 and v1.37.0),
 envtest 1.35.0 and 1.37.0, Claude Code 2.1.270 as the image build default
 (native binary from downloads.claude.ai per the deploy doc's recipe, fetched in a `debian:trixie-slim` stage and
@@ -953,3 +953,15 @@ touching sleeping Sandboxes. The session controller uses the `events.k8s.io` rec
     Not runnable in the authoring sandbox (a Firecracker VM without `/dev/kvm`). On GitHub's
     ubuntu-latest runners (AMD, nested virtualization) the full suite passes on kind v1.37.0 with
     every runner Pod in a Kata VM (CI run 113, 7m49s against 7m15s on runc).
+13. **agent-sandbox v1.0.6** (2026-10-16): the pin moved from v1.0.2 (`k8s.io/*` v0.37.1,
+    controller-runtime v0.25.2). The Makefile now derives the e2e's agent-sandbox version from
+    `go.mod`, and the e2e jobs are named by labels (`k8s lowest`/`highest`, plus runtime class)
+    so required checks survive version moves; the docs follow the pin. Items 3, 6
+    and 7 and the upstream behaviors listed above were re-read in v1.0.6 `api/v1beta1/sandbox_types.go`
+    and `controllers/sandbox_controller.go`: unchanged. `ReconcilerError` is now an exported
+    constant, and a new Ready reason `InvalidConfiguration` reports permanent validation errors
+    without requeuing. A new CEL rule rejects Sandbox names over 63 characters when
+    `spec.service` is true; SHOCK never sets `spec.service`. `kubeVersion` stays `>=1.35.0-0`;
+    `SandboxSpec` still has no idle-suspend field. CI's golangci-lint moved to v2.14.0: v2.13.2
+    cannot read Go 1.27.2 export data ("export data version 5 is greater than maximum supported
+    version 4").

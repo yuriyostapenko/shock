@@ -6,7 +6,8 @@ ENVTEST_K8S   ?= 1.35.x
 KIND          ?= kind
 KIND_CLUSTER  ?= shock-e2e
 KIND_NODE_IMAGE ?= kindest/node:v1.35.8
-AGENT_SANDBOX_VERSION ?= v1.0.2
+# The e2e installs the agent-sandbox release go.mod pins, the one the code is built against.
+AGENT_SANDBOX_VERSION ?= $(shell $(GO) list -m -f '{{.Version}}' sigs.k8s.io/agent-sandbox)
 # E2E_RUNTIME_CLASS=gvisor|kata installs that runtime into the kind node and
 # runs the runner Pods under it; hack/kind-<runtime>.sh pins each release's
 # checksums. kata needs /dev/kvm, vhost_vsock and vhost_net on the host.

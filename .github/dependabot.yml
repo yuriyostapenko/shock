@@ -15,8 +15,7 @@ updates:
 
   # The kubernetes group is a chore, not a merge-on-green: Chart.yaml's
   # kubeVersion is derived from the k8s.io minor the agent-sandbox pin carries,
-  # and the e2e matrix names its own agent-sandbox version, neither of which
-  # Dependabot edits and neither of which turns CI red when stale.
+  # which Dependabot does not edit and which does not turn CI red when stale.
   - package-ecosystem: gomod
     directory: /
     schedule:

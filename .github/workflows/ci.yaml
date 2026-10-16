@@ -35,7 +35,7 @@ jobs:
       - run: go vet ./...
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.13.2
+          version: v2.14.0
       - run: go test ./internal/... ./cmd/... -count=1
 
   chart:
@@ -79,22 +79,24 @@ jobs:
       - run: make envtest ENVTEST_K8S=1.35.x
 
   e2e:
-    name: e2e kind (agent-sandbox ${{ matrix.agent_sandbox }}, k8s ${{ matrix.kube }}${{ matrix.runtime_class && format(', {0}', matrix.runtime_class) || '' }})
+    # Labels, not versions, in the name: these are required checks.
+    name: e2e kind (k8s ${{ matrix.k8s }}${{ matrix.runtime_class && format(', {0}', matrix.runtime_class) || '' }})
     runs-on: ubuntu-latest
     needs: [go, chart]
     strategy:
       fail-fast: false
       matrix:
-        # The tested range. Add a version only after its conformance run passes.
-        agent_sandbox: [v1.0.2]
-        # Oldest and newest allowed minors for Chart.yaml kubeVersion.
-        kube: [v1.35.8, v1.37.0]
+        k8s: [lowest, highest]
         # Empty = runc. Each sandboxed runtime runs the whole suite once, on
         # the newest minor; Kata needs KVM, which ubuntu-latest (amd64) exposes.
-        runtime_class: [""]
+        runtime_class: ["", gvisor, kata]
+        exclude:
+          - {k8s: lowest, runtime_class: gvisor}
+          - {k8s: lowest, runtime_class: kata}
+        # Oldest and newest allowed minors for Chart.yaml kubeVersion.
         include:
-          - {agent_sandbox: v1.0.2, kube: v1.37.0, runtime_class: gvisor}
-          - {agent_sandbox: v1.0.2, kube: v1.37.0, runtime_class: kata}
+          - {k8s: lowest, kube: v1.35.8}
+          - {k8s: highest, kube: v1.37.0}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -119,7 +121,7 @@ jobs:
         run: |
           sudo modprobe -a kvm vhost_vsock vhost_net
           ls -l /dev/kvm /dev/vhost-vsock /dev/vhost-net
-      - run: make e2e-kind KIND_NODE_IMAGE=kindest/node:${{ matrix.kube }} AGENT_SANDBOX_VERSION=${{ matrix.agent_sandbox }} E2E_RUNTIME_CLASS=${{ matrix.runtime_class }}
+      - run: make e2e-kind KIND_NODE_IMAGE=kindest/node:${{ matrix.kube }} E2E_RUNTIME_CLASS=${{ matrix.runtime_class }}
       - name: controller logs on failure
         if: failure()
         run: |
