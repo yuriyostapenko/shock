@@ -247,7 +247,7 @@ sessionController:
 runner:
   image: {repository: "", tag: ""}   # required; contract in README
   baseDir: /home/runner/workspace   # --base-dir; at or below storage.mountPath
-  runtimeClassName: ""          # an existing RuntimeClass, e.g. gvisor; empty = node default
+  runtimeClassName: ""          # an existing RuntimeClass, e.g. gvisor or kata; empty = node default
   terminationGracePeriodSeconds: 120   # ≥ effective SIGKILL floor (75 s; 105 s with push-outcome)
   flags:
     releaseIdleSessionMin: 30
@@ -625,10 +625,11 @@ floor is 75 s at defaults and higher with push-outcome enabled. `securityContext
 no privilege escalation, seccomp RuntimeDefault; `runtimeClassName` from values.
 
 Sandboxed runtimes: `runner.runtimeClassName` names a RuntimeClass the cluster admin created; the
-chart is namespaced and never renders one, as with agent-sandbox. gVisor (`runsc`) is the tested
-sandbox: the e2e suite runs in full with every runner Pod under it (section 12). It applies to the
-runner Pod only. The experimental `images/runner-docker` image does not start rootless Docker under
-gVisor; `hostUsers: false` together with gVisor is untested.
+chart is namespaced and never renders one, as with agent-sandbox. gVisor (`runsc`) and Kata
+Containers (runtime-rs with QEMU, kata-deploy's default shim) are the tested sandboxes: the e2e
+suite runs in full with every runner Pod under each (section 12). It applies to the runner Pod
+only. The experimental `images/runner-docker` image does not start rootless Docker under gVisor
+and is untested on Kata; `hostUsers: false` is untested with either.
 
 ## 9. Registry credentials (npm / NuGet / Docker)
 
@@ -760,10 +761,11 @@ documented manual run against a real beta environment):
 - **A `runner.podTemplate` that removes an anchor fails loudly**: renaming the `runner` container
   makes the hook exit 2 rather than create a broken Sandbox.
 - `helm upgrade` with zero sandboxes awake is a no-op for sleeping sessions.
-- **Runtime isolation**: with `E2E_RUNTIME_CLASS=gvisor` every install sets
-  `runner.runtimeClassName`, so the whole suite runs on gVisor; the runner Pod carries the class
-  and the fake runner's kernel release names gVisor. Without it the Pod has no class and the
-  kernel is the host's, so the check cannot pass by accident.
+- **Runtime isolation**: with `E2E_RUNTIME_CLASS=gvisor` or `kata` every install sets
+  `runner.runtimeClassName`, so the whole suite runs on that runtime; the runner Pod carries the
+  class and the fake runner's kernel release differs from its Node's `kernelVersion` (and names
+  gVisor under gvisor). Without a class the Pod has none and the kernel is the Node's, so the
+  check cannot pass by accident.
 - **Active-session cap**: with `maxActiveSessions: 1` and one session pending or running, a
   second session's hook exits 1 naming the counts and creates no Sandbox, PVC or Secret;
   redelivery of the first session's order exits 0; once the first session sleeps, the same
@@ -928,3 +930,26 @@ touching sleeping Sandboxes. The session controller uses the `events.k8s.io` rec
     containerd's `restrict_oom_score_adj`. On GitHub's ubuntu-latest runners it passes the full
     suite on kind v1.37.0 in the same time as runc (CI run 104, 7 min). Not verified: Cilium
     egress policy on gVisor Pods and `hostUsers: false` on gVisor.
+12. **Kata Containers isolation** (2026-10-05): Kata `4.2.0`. Its 4.x release ships only the
+    Rust runtime (`/opt/kata/runtime-rs/bin/containerd-shim-kata-v2`); kata-deploy's default
+    shim is `qemu-runtime-rs`, handler `kata-qemu-runtime-rs`, RuntimeClass overhead 320Mi / 250m
+    (the VMM runs in the Pod cgroup, `sandbox_cgroup_only = true`). The static bundle
+    (`kata-static-4.2.0-amd64.tar.zst`, ~1 GB) has no published checksum; `hack/kind-kata.sh`
+    pins the downloaded file's sha256, extracts the ~375 MB the QEMU runtime-rs configuration
+    references (shim, configuration, statically linked QEMU and firmware, virtiofsd, guest kernel
+    and image), registers the handler as kata-deploy writes it, and applies a `kata` RuntimeClass
+    with that overhead. The guest kernel reports `uname -r` as `6.18.35`, not distinctive, so the
+    e2e compares the runner's kernel release against its Node's `kernelVersion` for every
+    sandboxed class. A kind node sees only host device nodes present at its creation; CI loads
+    `kvm`, `vhost_vsock` and `vhost_net` first. runtime-rs places the VMM in the Pod's systemd
+    cgroup over the system D-Bus, and kindest/node v1.37.0 (Debian trixie) runs systemd without a
+    D-Bus daemon: the first CI run failed every Kata sandbox with "add runtime to sandbox cgroup:
+    systemd dbus error ... No such file or directory", so the script installs and starts `dbus`.
+    QEMU backs guest RAM with a shared file on `/dev/shm` (`memory-backend-file`, `share=on`, for
+    virtio-fs), and Docker gives the kind node a 64M `/dev/shm`: the next run's guests (`-m 160M`,
+    sized from the Pod's limit) died in early boot with "kvm run failed Bad address", seen once
+    Kata debug logging reached containerd's journal. The script remounts it at 50% of RAM. Upstream runs its `qemu-runtime-rs` Kubernetes
+    tests on free `ubuntu-24.04` runners (kubeadm, not kind), the basis for an amd64 CI job.
+    Not runnable in the authoring sandbox (a Firecracker VM without `/dev/kvm`). On GitHub's
+    ubuntu-latest runners (AMD, nested virtualization) the full suite passes on kind v1.37.0 with
+    every runner Pod in a Kata VM (CI run 113, 7m49s against 7m15s on runc).

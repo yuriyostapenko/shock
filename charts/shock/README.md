@@ -125,6 +125,16 @@ tools start under it. The experimental `runner-docker` image does not: its
 rootless Docker fails under gVisor. Combining gVisor with `runner.hostUsers:
 false` is untested.
 
+**Kata Containers isolation.** The same value pointed at a Kata RuntimeClass
+runs each runner Pod in its own lightweight VM with its own guest kernel. Kata
+needs nodes with KVM (bare metal or nested virtualization). kata-deploy installs
+it and creates the classes; its default shim's class is `kata-qemu-runtime-rs`,
+with the `overhead.podFixed` the VM needs (320Mi, 250m). Keep that overhead: the
+VM monitor runs inside the Pod's cgroup and is OOM-killed without it. The
+session workspace PVC reaches the VM over virtio-fs. CI runs the full e2e suite
+with runner Pods on Kata 4.2.0 (QEMU, runtime-rs) on amd64. The `runner-docker`
+image and `runner.hostUsers: false` are untested on Kata.
+
 **Bring your own runner image** with `FROM ghcr.io/yuriyostapenko/shock-runner:X.Y.Z`
 and add toolchains as root before switching back to `USER 1000`. Whatever the
 image, the contract is: `claude` at 2.1.224 or later, pinned; `git >= 2.32`; a
@@ -205,7 +215,7 @@ types and enums. The load-bearing ones:
 | --- | --- | --- |
 | `environment.existingSecret` | `""` | Secret with key `environment-secret`. Required unless `secretValue` is set. |
 | `orchestrator.image.tag`, `runner.image.tag` | `""` | Fall back to the chart's `appVersion`. The `digest` fields pin the images; the release sets them. |
-| `runner.runtimeClassName` | `""` | An existing RuntimeClass for runner Pods, e.g. `gvisor` (see [gVisor isolation](#images)). Empty = the node default. |
+| `runner.runtimeClassName` | `""` | An existing RuntimeClass for runner Pods, e.g. `gvisor` or `kata-qemu-runtime-rs` (see [Images](#images)). Empty = the node default. |
 | `runner.hostUsers` | unset | `false` runs the runner Pod in a user namespace so root inside the container can use `apt`. |
 | `runner.flags.useAnthropicGitProxy` | `true` | Git goes through `api.anthropic.com` with the session creator's GitHub connection; the runner holds no git credentials. Set `false` when supplying credentials yourself. |
 | `orchestrator.expectedSpawnSeconds` | `180` | Server-side spawn lease, shared by all replicas. Must exceed `hookTimeout + 5` (rendering fails otherwise). Includes the initial suspension round-trip. |
