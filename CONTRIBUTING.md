@@ -23,8 +23,15 @@ go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.25
 
 Dependency pins live in `go.mod` (agent-sandbox v1.0.6, controller-runtime
 v0.25.2, k8s.io v0.37.1), in `Chart.yaml` (`kubeVersion`, derived from the
-agent-sandbox pin) and in the e2e matrix in `.github/workflows/ci.yaml`. Bump
-them together and re-derive `kubeVersion`.
+agent-sandbox pin) and in the e2e matrix in `.github/workflows/ci.yaml`, which
+maps the `lowest` and `highest` labels to kind node versions. The e2e installs
+the agent-sandbox release `go.mod` pins. Bump them together and re-derive
+`kubeVersion`.
+
+The e2e job names carry those labels, not versions, because the
+`Protect default branch` ruleset requires them by name: `e2e kind (k8s lowest)`,
+`e2e kind (k8s highest)`, `e2e kind (k8s highest, gvisor)` and
+`e2e kind (k8s highest, kata)`. Renaming a job means editing the ruleset.
 
 GitHub Actions are pinned by commit SHA with the version in a trailing comment
 (`uses: actions/checkout@3d3c42e… # v7.0.1`); a tag is mutable and therefore not
@@ -35,8 +42,8 @@ same way.
 Dependabot also proposes Go updates monthly, in two groups. The `go` group is
 ordinary; the `kubernetes` group (`k8s.io/*`, `agent-sandbox`,
 `controller-runtime`) is a chore rather than a merge-on-green, because it only
-edits `go.mod`: re-derive `kubeVersion` and move the e2e matrix in the same pull
-request, and run `make e2e-kind` against the new agent-sandbox release.
+edits `go.mod`: re-derive `kubeVersion` in the same pull request. Its e2e
+jobs already run against the new agent-sandbox release.
 
 The Go version lives in `go.mod`. CI reads it with `go-version-file`, and
 `images/orchestrator/Dockerfile` repeats it as `ARG GO_VERSION` because Docker

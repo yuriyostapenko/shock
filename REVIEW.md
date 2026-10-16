@@ -19,16 +19,13 @@ Dependabot moves both together, so a diff that changes only the SHA or only the
 comment is wrong.
 
 The `kubernetes` group is not a merge-on-green, because Dependabot edits
-`go.mod` and nothing else while two pins are derived from it, and neither of
-them turns CI red when stale. Before merging, in the same pull request:
+`go.mod` and nothing else while `kubeVersion` is derived from it, and a stale
+`kubeVersion` does not turn CI red. Before merging, in the same pull request:
 
 - re-derive `kubeVersion` in [charts/shock/Chart.yaml](charts/shock/Chart.yaml):
   two minors below the `k8s.io/*` version the new agent-sandbox release pins;
-- move the `agent_sandbox` entry of the e2e matrix in
-  [.github/workflows/ci.yaml](.github/workflows/ci.yaml), which names its own
-  version independently of `go.mod`;
-- run `make e2e-kind AGENT_SANDBOX_VERSION=vX.Y.Z`; a conformance failure blocks
-  the bump;
+- confirm the e2e jobs passed: they install the agent-sandbox release `go.mod`
+  pins, so a conformance failure blocks the bump;
 - record the versions and evidence in section 13 of
   [plans/shock-spec.md](plans/shock-spec.md).
 

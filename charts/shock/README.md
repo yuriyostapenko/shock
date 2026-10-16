@@ -384,6 +384,6 @@ is `claude_code_self_hosted_orchestrator_connected`.
 - **Circuit-broken sessions**: the hook exited 2 (template, RBAC, identity or
   immutable-Secret mismatch). The stderr tail shows in the environment's
   Activity tab. Fix the cause, then Retry there.
-- **Upgrading agent-sandbox**: only versions in the e2e matrix are tested.
+- **Upgrading agent-sandbox**: only the version SHOCK's `go.mod` pins is tested.
   Re-derive `kubeVersion`, re-run the conformance suite, and confirm no
   controller-driven idle-suspend applies by default before adding a version.
