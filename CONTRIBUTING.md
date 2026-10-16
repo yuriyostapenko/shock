@@ -17,7 +17,7 @@ changes include the corresponding spec update; the spec's verification record
 Go 1.27, Helm 4.3, kind 0.33, Docker. Install the Go tools once:
 
 ```sh
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.25
 ```
 
